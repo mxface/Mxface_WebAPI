@@ -1,0 +1,25 @@
+2026-08-25 11:23:53.658 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-25 11:23:53.668 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-25 11:23:53.672 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-25 11:23:53.676 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-25 11:24:22.477 [Warning] Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionMiddleware: Failed to determine the https port for redirect.
+2026-08-25 11:24:47.839 [Warning] MxfaceWebAPI.Filters.APIAuthorizationFilterAttribute: Rejected /api/v3/Face/Quality: missing subscriptionkey header
+2026-08-25 11:26:08.448 [Information] Npgsql.Command: Command execution completed (duration=31ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-25 11:26:08.494 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: Start processing HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Match
+2026-08-25 11:26:08.498 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Sending HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Match
+2026-08-25 11:26:08.578 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Received HTTP response headers after 70.199ms - 200
+2026-08-25 11:26:08.583 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: End processing HTTP request after 92.7371ms - 200
+2026-08-25 11:26:23.750 [Warning] MxfaceWebAPI.Filters.APIAuthorizationFilterAttribute: Rejected /api/v3/FaceIdentity: missing subscriptionkey header
+2026-08-25 11:26:23.795 [Information] Npgsql.Command: Command execution completed (duration=1ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())

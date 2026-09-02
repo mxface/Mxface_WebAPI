@@ -1,0 +1,5 @@
+2026-08-19 15:10:36.981 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-19 15:10:36.990 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-19 15:10:36.994 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-19 15:10:36.997 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-19 15:10:53.963 [Warning] Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionMiddleware: Failed to determine the https port for redirect.

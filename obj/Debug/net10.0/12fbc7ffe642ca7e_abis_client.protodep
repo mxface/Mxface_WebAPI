@@ -1,0 +1,2 @@
+obj\Debug\net10.0\Protos/AbisClient.cs \
+obj\Debug\net10.0\Protos/AbisClientGrpc.cs: Protos/abis_client.proto

@@ -1,0 +1,36 @@
+2026-08-20 15:41:23.522 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-20 15:41:23.532 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-20 15:41:23.535 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-20 15:41:23.540 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-20 15:42:17.894 [Warning] Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionMiddleware: Failed to determine the https port for redirect.
+2026-08-20 15:42:18.567 [Information] Npgsql.Command: Command execution completed (duration=29ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-20 15:42:19.654 [Error] MxfaceWebAPI.Controllers.FingerPrintController: Enroll received invalid base64 data
+System.FormatException: The input is not a valid Base-64 string as it contains a non-base 64 character, more than two padding characters, or an illegal character among the padding characters.
+   at System.Convert.FromBase64CharPtr(Char* inputPtr, Int32 inputLength)
+   at System.Convert.FromBase64String(String s)
+   at MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(String base64Image) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\CommonHelper\CommonHelper.cs:line 17
+   at MxfaceWebAPI.Controllers.FingerPrintController.Enroll(FingerPrintEnrollRequest request) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\Controllers\FingerPrintController.cs:line 106
+2026-08-20 15:42:19.931 [Information] Npgsql.Command: Command execution completed (duration=1ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-20 15:42:19.937 [Error] MxfaceWebAPI.Controllers.FingerPrintController: Enroll received a non-BMP or malformed image
+System.IO.InvalidDataException: Expected a BMP image (magic bytes 'BM') to derive width/height for format=RAW.
+   at MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(String base64Image) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\CommonHelper\CommonHelper.cs:line 23
+   at MxfaceWebAPI.Controllers.FingerPrintController.Enroll(FingerPrintEnrollRequest request) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\Controllers\FingerPrintController.cs:line 106
+2026-08-20 15:42:19.950 [Information] Npgsql.Command: Command execution completed (duration=0ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())

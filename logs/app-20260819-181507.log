@@ -1,0 +1,23 @@
+2026-08-19 18:15:08.086 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-19 18:15:08.095 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-19 18:15:08.099 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-19 18:15:08.102 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-19 18:16:03.595 [Warning] Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionMiddleware: Failed to determine the https port for redirect.
+2026-08-19 18:16:04.014 [Information] Npgsql.Command: Command execution completed (duration=21ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-19 18:16:04.028 [Information] MxfaceWebAPI.Grpc.ClientApiEnvelopeFactory: Outbound ClientApiRequest: {"ver":"1.0","reqId":"14dba6eb-f3a9-4709-a6a7-7af569d5f872","ts":"2026-08-19T12:46:04","enc":0,"mode":0,"data":{"fingerPrint1":"a","fingerPrint2":"b","reqId":"14dba6eb-f3a9-4709-a6a7-7af569d5f872","ts":"2026-08-19T12:46:04"}}
+2026-08-19 18:16:04.067 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: Start processing HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Match
+2026-08-19 18:16:04.072 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Sending HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Match
+2026-08-19 18:16:04.147 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Received HTTP response headers after 65.1963ms - 200
+2026-08-19 18:16:04.152 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: End processing HTTP request after 88.0319ms - 200
+2026-08-19 18:16:04.167 [Error] MxfaceWebAPI.Controllers.FingerPrintController: Master rejected Verify: ec=-2022 em=Invalid data
+2026-08-19 18:16:04.181 [Information] Npgsql.Command: Command execution completed (duration=4ms): insert into faceclient_db.transactions
+    (clientid, reqid, reqpaylod, rects, respayload, error, rests, errorpoint,
+     featuretype, quotacount, clientip, createdby, createdat)
+values
+    ($1, $2, $3::jsonb, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)

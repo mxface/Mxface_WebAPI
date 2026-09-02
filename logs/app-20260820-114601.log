@@ -1,0 +1,119 @@
+2026-08-20 11:46:02.933 [Information] Microsoft.Hosting.Lifetime: Now listening on: https://localhost:7286
+2026-08-20 11:46:02.941 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-20 11:46:03.010 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-20 11:46:03.015 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-20 11:46:03.020 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-20 11:47:11.016 [Information] Npgsql.Command: Command execution completed (duration=36ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-20 11:47:19.678 [Error] Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddleware: An unhandled exception has occurred while executing the request.
+System.InvalidOperationException: The node already has a parent.
+   at System.Text.Json.ThrowHelper.ThrowInvalidOperationException_NodeAlreadyHasParent()
+   at System.Text.Json.Nodes.JsonNode.AssignParent(JsonNode parent)
+   at System.Text.Json.Nodes.JsonObject.SetItem(String propertyName, JsonNode value)
+   at MxfaceWebAPI.Grpc.ClientApiEnvelopeFactory.Create(Int32 mode, CommonRequest request, String subscriptionKey) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\Grpc\ClientApiEnvelopeFactory.cs:line 82
+   at MxfaceWebAPI.Controllers.BiometricControllerBase.CallAsync[TResponse](Int32 mode, CommonRequest requestPayload, Func`3 grpcCall, String operationName, Int32 featureType) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\Controllers\BiometricControllerBase.cs:line 66
+   at lambda_method6(Closure, Object)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ActionMethodExecutor.AwaitableObjectResultExecutor.Execute(ActionContext actionContext, IActionResultTypeMapper mapper, ObjectMethodExecutor executor, Object controller, Object[] arguments)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeActionMethodAsync>g__Awaited|12_0(ControllerActionInvoker invoker, ValueTask`1 actionResultValueTask)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeNextActionFilterAsync>g__Awaited|10_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.Rethrow(ActionExecutedContextSealed context)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.Next(State& next, Scope& scope, Object& state, Boolean& isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeInnerFilterAsync>g__Awaited|13_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeFilterPipelineAsync>g__Awaited|20_0(ResourceInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeAsync>g__Awaited|17_0(ResourceInvoker invoker, Task task, IDisposable scope)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeAsync>g__Awaited|17_0(ResourceInvoker invoker, Task task, IDisposable scope)
+   at Microsoft.AspNetCore.Authorization.AuthorizationMiddleware.Invoke(HttpContext context)
+   at Microsoft.AspNetCore.Authentication.AuthenticationMiddleware.Invoke(HttpContext context)
+   at Swashbuckle.AspNetCore.SwaggerUI.SwaggerUIMiddleware.Invoke(HttpContext httpContext)
+   at Swashbuckle.AspNetCore.Swagger.SwaggerMiddleware.Invoke(HttpContext httpContext, ISwaggerProvider swaggerProvider)
+   at Microsoft.AspNetCore.RateLimiting.RateLimitingMiddleware.InvokeInternal(HttpContext context, EnableRateLimitingAttribute enableRateLimitingAttribute)
+   at MxfaceWebAPI.Extensions.SecurityServiceExtensions.<>c__DisplayClass2_0.<<UseSecurityHeaders>b__0>d.MoveNext() in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\Extensions\SecurityServiceExtensions.cs:line 71
+--- End of stack trace from previous location ---
+   at Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddlewareImpl.<Invoke>g__Awaited|10_0(ExceptionHandlerMiddlewareImpl middleware, HttpContext context, Task task)
+2026-08-20 11:47:19.689 [Error] MxfaceWebAPI.Common.GlobalExceptionHandler: Unhandled exception for POST /api/FingerPrint/Enroll
+System.InvalidOperationException: The node already has a parent.
+   at System.Text.Json.ThrowHelper.ThrowInvalidOperationException_NodeAlreadyHasParent()
+   at System.Text.Json.Nodes.JsonNode.AssignParent(JsonNode parent)
+   at System.Text.Json.Nodes.JsonObject.SetItem(String propertyName, JsonNode value)
+   at MxfaceWebAPI.Grpc.ClientApiEnvelopeFactory.Create(Int32 mode, CommonRequest request, String subscriptionKey) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\Grpc\ClientApiEnvelopeFactory.cs:line 82
+   at MxfaceWebAPI.Controllers.BiometricControllerBase.CallAsync[TResponse](Int32 mode, CommonRequest requestPayload, Func`3 grpcCall, String operationName, Int32 featureType) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\Controllers\BiometricControllerBase.cs:line 66
+   at lambda_method6(Closure, Object)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ActionMethodExecutor.AwaitableObjectResultExecutor.Execute(ActionContext actionContext, IActionResultTypeMapper mapper, ObjectMethodExecutor executor, Object controller, Object[] arguments)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeActionMethodAsync>g__Awaited|12_0(ControllerActionInvoker invoker, ValueTask`1 actionResultValueTask)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeNextActionFilterAsync>g__Awaited|10_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.Rethrow(ActionExecutedContextSealed context)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.Next(State& next, Scope& scope, Object& state, Boolean& isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeInnerFilterAsync>g__Awaited|13_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeFilterPipelineAsync>g__Awaited|20_0(ResourceInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeAsync>g__Awaited|17_0(ResourceInvoker invoker, Task task, IDisposable scope)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeAsync>g__Awaited|17_0(ResourceInvoker invoker, Task task, IDisposable scope)
+   at Microsoft.AspNetCore.Authorization.AuthorizationMiddleware.Invoke(HttpContext context)
+   at Microsoft.AspNetCore.Authentication.AuthenticationMiddleware.Invoke(HttpContext context)
+   at Swashbuckle.AspNetCore.SwaggerUI.SwaggerUIMiddleware.Invoke(HttpContext httpContext)
+   at Swashbuckle.AspNetCore.Swagger.SwaggerMiddleware.Invoke(HttpContext httpContext, ISwaggerProvider swaggerProvider)
+   at Microsoft.AspNetCore.RateLimiting.RateLimitingMiddleware.InvokeInternal(HttpContext context, EnableRateLimitingAttribute enableRateLimitingAttribute)
+   at MxfaceWebAPI.Extensions.SecurityServiceExtensions.<>c__DisplayClass2_0.<<UseSecurityHeaders>b__0>d.MoveNext() in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\Extensions\SecurityServiceExtensions.cs:line 71
+--- End of stack trace from previous location ---
+   at Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddlewareImpl.<Invoke>g__Awaited|10_0(ExceptionHandlerMiddlewareImpl middleware, HttpContext context, Task task)
+2026-08-20 11:47:25.325 [Information] Npgsql.Command: Command execution completed (duration=3ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-20 11:48:05.139 [Error] Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddleware: An unhandled exception has occurred while executing the request.
+System.InvalidOperationException: The node already has a parent.
+   at System.Text.Json.ThrowHelper.ThrowInvalidOperationException_NodeAlreadyHasParent()
+   at System.Text.Json.Nodes.JsonNode.AssignParent(JsonNode parent)
+   at System.Text.Json.Nodes.JsonObject.SetItem(String propertyName, JsonNode value)
+   at MxfaceWebAPI.Grpc.ClientApiEnvelopeFactory.Create(Int32 mode, CommonRequest request, String subscriptionKey)
+   at MxfaceWebAPI.Controllers.BiometricControllerBase.CallAsync[TResponse](Int32 mode, CommonRequest requestPayload, Func`3 grpcCall, String operationName, Int32 featureType)
+   at lambda_method6(Closure, Object)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ActionMethodExecutor.AwaitableObjectResultExecutor.Execute(ActionContext actionContext, IActionResultTypeMapper mapper, ObjectMethodExecutor executor, Object controller, Object[] arguments)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeActionMethodAsync>g__Awaited|12_0(ControllerActionInvoker invoker, ValueTask`1 actionResultValueTask)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeNextActionFilterAsync>g__Awaited|10_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.Rethrow(ActionExecutedContextSealed context)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.Next(State& next, Scope& scope, Object& state, Boolean& isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeInnerFilterAsync>g__Awaited|13_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeFilterPipelineAsync>g__Awaited|20_0(ResourceInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeAsync>g__Awaited|17_0(ResourceInvoker invoker, Task task, IDisposable scope)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeAsync>g__Awaited|17_0(ResourceInvoker invoker, Task task, IDisposable scope)
+   at Microsoft.AspNetCore.Authorization.AuthorizationMiddleware.Invoke(HttpContext context)
+   at Microsoft.AspNetCore.Authentication.AuthenticationMiddleware.Invoke(HttpContext context)
+   at Swashbuckle.AspNetCore.SwaggerUI.SwaggerUIMiddleware.Invoke(HttpContext httpContext)
+   at Swashbuckle.AspNetCore.Swagger.SwaggerMiddleware.Invoke(HttpContext httpContext, ISwaggerProvider swaggerProvider)
+   at Microsoft.AspNetCore.RateLimiting.RateLimitingMiddleware.InvokeInternal(HttpContext context, EnableRateLimitingAttribute enableRateLimitingAttribute)
+   at MxfaceWebAPI.Extensions.SecurityServiceExtensions.<>c__DisplayClass2_0.<<UseSecurityHeaders>b__0>d.MoveNext()
+--- End of stack trace from previous location ---
+   at Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddlewareImpl.<Invoke>g__Awaited|10_0(ExceptionHandlerMiddlewareImpl middleware, HttpContext context, Task task)
+2026-08-20 11:48:05.148 [Error] MxfaceWebAPI.Common.GlobalExceptionHandler: Unhandled exception for POST /api/FingerPrint/Enroll
+System.InvalidOperationException: The node already has a parent.
+   at System.Text.Json.ThrowHelper.ThrowInvalidOperationException_NodeAlreadyHasParent()
+   at System.Text.Json.Nodes.JsonNode.AssignParent(JsonNode parent)
+   at System.Text.Json.Nodes.JsonObject.SetItem(String propertyName, JsonNode value)
+   at MxfaceWebAPI.Grpc.ClientApiEnvelopeFactory.Create(Int32 mode, CommonRequest request, String subscriptionKey)
+   at MxfaceWebAPI.Controllers.BiometricControllerBase.CallAsync[TResponse](Int32 mode, CommonRequest requestPayload, Func`3 grpcCall, String operationName, Int32 featureType)
+   at lambda_method6(Closure, Object)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ActionMethodExecutor.AwaitableObjectResultExecutor.Execute(ActionContext actionContext, IActionResultTypeMapper mapper, ObjectMethodExecutor executor, Object controller, Object[] arguments)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeActionMethodAsync>g__Awaited|12_0(ControllerActionInvoker invoker, ValueTask`1 actionResultValueTask)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeNextActionFilterAsync>g__Awaited|10_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.Rethrow(ActionExecutedContextSealed context)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.Next(State& next, Scope& scope, Object& state, Boolean& isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeInnerFilterAsync>g__Awaited|13_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeFilterPipelineAsync>g__Awaited|20_0(ResourceInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeAsync>g__Awaited|17_0(ResourceInvoker invoker, Task task, IDisposable scope)
+   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeAsync>g__Awaited|17_0(ResourceInvoker invoker, Task task, IDisposable scope)
+   at Microsoft.AspNetCore.Authorization.AuthorizationMiddleware.Invoke(HttpContext context)
+   at Microsoft.AspNetCore.Authentication.AuthenticationMiddleware.Invoke(HttpContext context)
+   at Swashbuckle.AspNetCore.SwaggerUI.SwaggerUIMiddleware.Invoke(HttpContext httpContext)
+   at Swashbuckle.AspNetCore.Swagger.SwaggerMiddleware.Invoke(HttpContext httpContext, ISwaggerProvider swaggerProvider)
+   at Microsoft.AspNetCore.RateLimiting.RateLimitingMiddleware.InvokeInternal(HttpContext context, EnableRateLimitingAttribute enableRateLimitingAttribute)
+   at MxfaceWebAPI.Extensions.SecurityServiceExtensions.<>c__DisplayClass2_0.<<UseSecurityHeaders>b__0>d.MoveNext()
+--- End of stack trace from previous location ---
+   at Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddlewareImpl.<Invoke>g__Awaited|10_0(ExceptionHandlerMiddlewareImpl middleware, HttpContext context, Task task)

@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+// Client API over gRPC — the enrolment backend (ABIS_CLIENT) → master call path (Big Plan 1),
+// replacing the REST BiometricEnrollmentClient. Transport is gRPC with a TYPED request envelope that
+// mirrors the REST ApiRequest field-for-field (ver/reqId/ts/enc/skey/ci/hmac/mode/counts/id/data/…),
+// so the master reconstructs the exact same ApiRequest DTO and reuses its REST processing verbatim
+// (decrypt / validate / replay / route / audit) — single source of truth.
+//
+// The `data` field carries the request payload in the SAME shape as REST: when enc=1 it is the
+// encrypted payload string; when enc=0 it is the plaintext payload JSON. The master decrypts/parses it
+// exactly as on the REST path. `subscription_key` travels alongside (it was the HTTP header).
+//
+// The response stays a JSON string (ClientApiResponse.response_json) on purpose: the master's
+// ApiResponse carries @JsonAnyGetter dynamic top-level fields (e.g. key-rotation newPublicKey/newKeyId)
+// and IdentifyApiResponse carries a polymorphic candidateList — keeping it as JSON preserves every one
+// of those byte-for-byte, so the enrolment backend parses it into ApiResponse / IdentifyApiResponse
+// exactly as it parsed the REST body.
+
+option java_multiple_files = true;
+option java_package = "mantra.abis.client.grpc";
+option java_outer_classname = "AbisClientProto";
+option csharp_namespace = "MxfaceWebAPI.Grpc.AbisClient";
+
+package mantra.abis.client;
+
+service ClientApiService {
+  rpc Enrol      (ClientApiRequest) returns (ClientApiResponse);
+  rpc Update     (ClientApiRequest) returns (ClientApiResponse);
+  rpc Identify   (ClientApiRequest) returns (ClientApiResponse);
+  rpc Delete     (ClientApiRequest) returns (ClientApiResponse);
+  rpc Auth       (ClientApiRequest) returns (ClientApiResponse);
+  rpc Match      (ClientApiRequest) returns (ClientApiResponse);
+  rpc EnrolCount (ClientApiRequest) returns (ClientApiResponse);
+  rpc Ping       (ClientApiRequest) returns (ClientApiResponse);
+}
+
+// Typed twin of the REST ApiRequest envelope. Field names map to the ApiRequest @JsonProperty keys.
+// Scalar proto3 defaults ("" / 0) mean "unset" — the master omits empty strings and a 0 job_id when it
+// rebuilds the envelope, so absent fields deserialize back to null exactly as with the REST JSON body.
+message ClientApiRequest {
+  string subscription_key = 1;  // the former HTTP `subscription-key` header (may be empty on-prem)
+
+  string ver          = 2;      // envelope version ("ver")
+  string req_id       = 3;      // "reqId"
+  string ts           = 4;      // "ts" (string epoch/ISO — kept as-is)
+  string skey         = 5;      // wrapped session key (encrypted path)
+  string ci           = 6;      // "ci"
+  string hmac         = 7;      // payload HMAC (encrypted path)
+  int32  enc          = 8;      // "enc": 1 = encrypted payload, 0 = plaintext
+  int32  mode         = 9;      // "mode"
+  string demo_count   = 10;     // "demoCount"
+  string finger_count = 11;     // "fingerCount"
+  string iris_count   = 12;     // "irisCount"
+  string face_count   = 13;     // "faceCount"
+  string id           = 14;     // "id" — V2 key identifier (rotating key pool); empty for V1
+  string data         = 15;     // "data" — payload: encrypted string (enc=1) or plaintext JSON (enc=0)
+  int64  job_id       = 16;     // "jobId" — client-created job id (0 = unset → master creates the row)
+  string kcl_user_id  = 17;     // "kclUserId" — operator identity, honoured premise-only
+}
+
+message ClientApiResponse {
+  string response_json = 1;    // JSON of ApiResponse / IdentifyApiResponse (all dynamic fields preserved)
+}

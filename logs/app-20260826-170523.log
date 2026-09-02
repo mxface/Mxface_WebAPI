@@ -1,0 +1,24 @@
+2026-08-26 17:05:25.111 [Information] Microsoft.Hosting.Lifetime: Now listening on: https://localhost:7286
+2026-08-26 17:05:25.119 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-26 17:05:25.197 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-26 17:05:25.226 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-26 17:05:25.230 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-26 17:05:44.946 [Warning] MxfaceWebAPI.Filters.APIAuthorizationFilterAttribute: Rejected /api/v3/FaceIdentity: missing subscriptionkey header
+2026-08-26 17:10:33.437 [Information] Npgsql.Command: Command execution completed (duration=74ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-26 17:10:33.573 [Error] MxfaceWebAPI.Controllers.V3.FaceIdentityController: Enroll received a non-BMP or malformed image
+System.IO.InvalidDataException: Expected a BMP image (magic bytes 'BM') to derive width/height for format=RAW.
+   at MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(String base64Image) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\CommonHelper\CommonHelper.cs:line 52
+   at MxfaceWebAPI.Controllers.V3.FaceIdentityController.Enroll(CreateFaceIdentityRequest model) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\Controllers\V3\FaceIdentityController.cs:line 114
+2026-08-26 17:10:58.914 [Information] Npgsql.Command: Command execution completed (duration=2ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())

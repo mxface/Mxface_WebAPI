@@ -1,0 +1,2 @@
+obj\Debug\net10.0\Protos/Biometric.cs \
+obj\Debug\net10.0\Protos/BiometricGrpc.cs: Protos/biometric.proto

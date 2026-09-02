@@ -1,0 +1,32 @@
+2026-08-24 18:14:26.173 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-24 18:14:26.182 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-24 18:14:26.186 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-24 18:14:26.191 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-24 18:15:22.574 [Warning] Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionMiddleware: Failed to determine the https port for redirect.
+2026-08-24 18:15:23.118 [Information] Npgsql.Command: Command execution completed (duration=30ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-24 18:15:23.138 [Information] MxfaceWebAPI.Grpc.ClientApiEnvelopeFactory: Outbound ClientApiRequest: {"ver":"1.0","reqId":"d83b0356-610e-466f-8ada-497356c9523c","ts":"2026-08-24T12:45:23.131Z","enc":0,"mode":0,"data":{"ts":"2026-08-24T12:45:23.131Z","reqId":"d83b0356-610e-466f-8ada-497356c9523c","sysInfo":{},"groupName":"Default","referenceIds":["TEST-EXT-9028"]}}
+2026-08-24 18:15:23.178 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: Start processing HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Delete
+2026-08-24 18:15:23.183 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Sending HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Delete
+2026-08-24 18:15:23.319 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Received HTTP response headers after 125.4476ms - 200
+2026-08-24 18:15:23.324 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: End processing HTTP request after 149.3109ms - 200
+2026-08-24 18:15:23.417 [Error] MxfaceWebAPI.Controllers.FingerPrintController: Delete failed unexpectedly
+System.Text.Json.JsonException: The JSON value could not be converted to MxfaceWebAPI.Models.BiomatricBaseResponse. Path: $ | LineNumber: 0 | BytePositionInLine: 1.
+   at System.Text.Json.ThrowHelper.ThrowJsonException_DeserializeUnableToConvertValue(Type propertyType)
+   at System.Text.Json.Serialization.Converters.ObjectDefaultConverter`1.OnTryRead(Utf8JsonReader& reader, Type typeToConvert, JsonSerializerOptions options, ReadStack& state, T& value)
+   at System.Text.Json.Serialization.JsonConverter`1.TryRead(Utf8JsonReader& reader, Type typeToConvert, JsonSerializerOptions options, ReadStack& state, T& value, Boolean& isPopulatedValue)
+   at System.Text.Json.Serialization.JsonConverter`1.ReadCore(Utf8JsonReader& reader, JsonSerializerOptions options, ReadStack& state)
+   at System.Text.Json.JsonSerializer.ReadFromSpan[TValue](ReadOnlySpan`1 utf8Json, JsonTypeInfo`1 jsonTypeInfo, Nullable`1 actualByteCount)
+   at System.Text.Json.JsonSerializer.ReadFromSpan[TValue](ReadOnlySpan`1 json, JsonTypeInfo`1 jsonTypeInfo)
+   at System.Text.Json.JsonSerializer.Deserialize[TValue](String json, JsonSerializerOptions options)
+   at MxfaceWebAPI.Controllers.BiometricControllerBase.CallAsync[TResponse](Int32 mode, CommonRequest requestPayload, Func`3 grpcCall, String operationName, Int32 featureType, Func`3 shouldRetryWithFallback, Func`3 fallbackGrpcCall, Nullable`1 fallbackMode) in E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\Controllers\BiometricControllerBase.cs:line 167
+2026-08-24 18:15:23.436 [Information] Npgsql.Command: Command execution completed (duration=6ms): insert into faceclient_db.transactions
+    (clientid, reqid, reqpaylod, rects, respayload, error, rests, errorpoint,
+     featuretype, quotacount, clientip, createdby, createdat)
+values
+    ($1, $2, $3::jsonb, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)

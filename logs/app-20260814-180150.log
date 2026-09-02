@@ -1,0 +1,22 @@
+2026-08-14 18:01:51.172 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-14 18:01:51.181 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-14 18:01:51.185 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-14 18:01:51.188 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-14 18:02:46.997 [Warning] Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionMiddleware: Failed to determine the https port for redirect.
+2026-08-14 18:02:47.499 [Information] Npgsql.Command: Command execution completed (duration=30ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-14 18:02:47.517 [Information] MxfaceWebAPI.Grpc.ClientApiEnvelopeFactory: Outbound ClientApiRequest: Ver=1.0 ReqId=895315df-56bf-44bc-aea2-c44b00cba385 Ts=2026-08-14T12:32:47 Enc=0 Mode=0 Data={"fingerPrint":"dGVzdA==","externalId":"filelog-test","group":"1","ver":null,"reqId":null,"ts":null}
+2026-08-14 18:02:47.558 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: Start processing HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Enrol
+2026-08-14 18:02:47.563 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Sending HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Enrol
+2026-08-14 18:02:47.645 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Received HTTP response headers after 72.1645ms - 200
+2026-08-14 18:02:47.650 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: End processing HTTP request after 94.8623ms - 200
+2026-08-14 18:02:47.678 [Information] Npgsql.Command: Command execution completed (duration=5ms): insert into faceclient_db.transactions
+    (clientid, reqid, reqpaylod, rects, respayload, error, rests, errorpoint,
+     featuretype, quotacount, clientip, createdby, createdat)
+values
+    ($1, $2, $3::jsonb, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)

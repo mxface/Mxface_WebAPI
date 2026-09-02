@@ -1,0 +1,6 @@
+@MxfaceWebAPI_HostAddress = http://localhost:5094
+
+GET {{MxfaceWebAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

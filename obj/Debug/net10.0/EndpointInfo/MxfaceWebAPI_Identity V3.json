@@ -1,0 +1,23 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "MXFace - Identity API V3 (1-to-n search)",
+    "version": "v3"
+  },
+  "paths": { },
+  "components": {
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "description": "Enter a valid JWT access token.",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    {
+      "Bearer": [ ]
+    }
+  ]
+}

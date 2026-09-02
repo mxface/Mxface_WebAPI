@@ -1,0 +1,115 @@
+[
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.FingerPrintController",
+    "Method": "Verify",
+    "RelativePath": "api/FingerPrint/Verify",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.VerifyFingerPrintsRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.VerifyFingerPrintsResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "VerifyFingerPrint"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.IrisController",
+    "Method": "Verify",
+    "RelativePath": "api/Iris/Verify",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.VerifyIrisRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.VerifyIrisResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "VerifyIris"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceController",
+    "Method": "Quality",
+    "RelativePath": "api/v3/Face/Quality",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [],
+    "EndpointName": "Quality"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Enroll",
+    "RelativePath": "api/v3/FaceIdentity",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.EnrollIdentityRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.EnrollIdentityResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "Create"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.WeatherForecastController",
+    "Method": "Get",
+    "RelativePath": "WeatherForecast",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.IEnumerable\u00601[[MxfaceWebAPI.WeatherForecast, MxfaceWebAPI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "GetWeatherForecast"
+  }
+]

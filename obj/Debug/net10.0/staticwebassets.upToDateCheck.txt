@@ -1,0 +1,2 @@
+wwwroot\index.html
+E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI\wwwroot\index.html

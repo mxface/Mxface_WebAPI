@@ -1,0 +1,41 @@
+2026-08-24 18:22:13.098 [Information] Microsoft.Hosting.Lifetime: Now listening on: https://localhost:7286
+2026-08-24 18:22:13.105 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-24 18:22:13.171 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-24 18:22:13.177 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-24 18:22:13.182 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-24 18:24:23.726 [Warning] MxfaceWebAPI.Filters.APIAuthorizationFilterAttribute: Rejected /api/FingerPrint/Delete: missing subscriptionkey header
+2026-08-24 18:25:11.830 [Information] Npgsql.Command: Command execution completed (duration=37ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-24 18:25:25.173 [Information] MxfaceWebAPI.Grpc.ClientApiEnvelopeFactory: Outbound ClientApiRequest: {"ver":"1.0","reqId":"b8609c89-1acb-466d-8b81-86f092d38e2e","ts":"2026-08-24T12:55:25.168Z","enc":0,"mode":0,"data":{"ts":"2026-08-24T12:55:25.168Z","reqId":"b8609c89-1acb-466d-8b81-86f092d38e2e","sysInfo":{},"groupName":"Default","referenceIds":["Har-101"]}}
+2026-08-24 18:26:54.501 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: Start processing HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Delete
+2026-08-24 18:26:54.508 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Sending HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Delete
+2026-08-24 18:26:54.726 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Received HTTP response headers after 205.0696ms - 200
+2026-08-24 18:26:54.734 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: End processing HTTP request after 236.0195ms - 200
+2026-08-24 18:27:07.420 [Information] Npgsql.Command: Command execution completed (duration=17ms): insert into faceclient_db.transactions
+    (clientid, reqid, reqpaylod, rects, respayload, error, rests, errorpoint,
+     featuretype, quotacount, clientip, createdby, createdat)
+values
+    ($1, $2, $3::jsonb, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)
+2026-08-24 18:28:39.893 [Warning] MxfaceWebAPI.Filters.APIAuthorizationFilterAttribute: Rejected /api/Iris/Delete: missing subscriptionkey header
+2026-08-24 18:29:23.349 [Information] Npgsql.Command: Command execution completed (duration=3ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-24 18:29:23.356 [Information] MxfaceWebAPI.Grpc.ClientApiEnvelopeFactory: Outbound ClientApiRequest: {"ver":"1.0","reqId":"d189bb9d-21ea-4b0e-a093-7747f515f351","ts":"2026-08-24T12:59:23.355Z","enc":0,"mode":0,"data":{"ts":"2026-08-24T12:59:23.355Z","reqId":"d189bb9d-21ea-4b0e-a093-7747f515f351","sysInfo":{},"groupName":"Default","referenceIds":["Har-101"]}}
+2026-08-24 18:29:23.364 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: Start processing HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Delete
+2026-08-24 18:29:23.370 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Sending HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Delete
+2026-08-24 18:29:23.665 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Received HTTP response headers after 288.7154ms - 200
+2026-08-24 18:29:23.672 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: End processing HTTP request after 307.1923ms - 200
+2026-08-24 18:29:28.521 [Information] Npgsql.Command: Command execution completed (duration=1ms): insert into faceclient_db.transactions
+    (clientid, reqid, reqpaylod, rects, respayload, error, rests, errorpoint,
+     featuretype, quotacount, clientip, createdby, createdat)
+values
+    ($1, $2, $3::jsonb, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)

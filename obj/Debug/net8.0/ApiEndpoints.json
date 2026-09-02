@@ -1,0 +1,759 @@
+[
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.FingerPrintController",
+    "Method": "Delete",
+    "RelativePath": "api/FingerPrint/Delete",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.FingerPrintDeleteRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.BiomatricBaseResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "DeleteFingerPrint"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.FingerPrintController",
+    "Method": "Enroll",
+    "RelativePath": "api/FingerPrint/Enroll",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.FingerPrintEnrollRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.BiometricEnrollResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "EnrollFingerPrint"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.FingerPrintController",
+    "Method": "Liveness",
+    "RelativePath": "api/FingerPrint/Liveness",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.FingerprintLivenessRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.FingerprintLivenessResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "CheckFingerPrintLiveness"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.FingerPrintController",
+    "Method": "Search",
+    "RelativePath": "api/FingerPrint/Search",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.FingerPrintSearchRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.BiometricSearchResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "SearchFingerPrint"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.FingerPrintController",
+    "Method": "Verify",
+    "RelativePath": "api/FingerPrint/Verify",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.VerifyFingerPrintsRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.VerifyFingerPrintsResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "VerifyFingerPrint"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.IrisController",
+    "Method": "Delete",
+    "RelativePath": "api/Iris/Delete",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.IrisDeleteRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.BiomatricBaseResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "DeleteIris"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.IrisController",
+    "Method": "Enroll",
+    "RelativePath": "api/Iris/Enroll",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.IrisEnrollRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.BiometricEnrollResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "EnrollIris"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.IrisController",
+    "Method": "Liveness",
+    "RelativePath": "api/Iris/Liveness",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.IrisLivenessRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.IrisLivenessResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "CheckIrisLiveness"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.IrisController",
+    "Method": "Search",
+    "RelativePath": "api/Iris/Search",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.IrisSearchRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.BiometricSearchResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "SearchIris"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.IrisController",
+    "Method": "Verify",
+    "RelativePath": "api/Iris/Verify",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.VerifyIrisRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.VerifyIrisResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "VerifyIris"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceController",
+    "Method": "Quality",
+    "RelativePath": "api/v3/Face/Quality",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.QualityRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.QualityResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "Quality"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Enroll",
+    "RelativePath": "api/v3/FaceIdentity",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "model",
+        "Type": "MxfaceWebAPI.Models.Request.FaceIdentity.CreateFaceIdentityRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.FaceIdentity.FaceIdentityInfo",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "Create"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Get",
+    "RelativePath": "api/v3/FaceIdentity",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "groupId",
+        "Type": "System.Nullable\u00601[[System.Int32, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "IsRequired": false
+      },
+      {
+        "Name": "offset",
+        "Type": "System.Int32",
+        "IsRequired": false
+      },
+      {
+        "Name": "limit",
+        "Type": "System.Int32",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.FaceIdentity.FaceIdentityResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "GetIdentityByGroup"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Get",
+    "RelativePath": "api/v3/FaceIdentity/{externalId}/facIdentities",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "externalId",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [],
+    "EndpointName": "GetFaceByExternalId"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Get",
+    "RelativePath": "api/v3/FaceIdentity/{faceIdentityId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "faceIdentityId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.FaceIdentity.FaceIdentityInfo",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "GetByIdentityId"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Delete",
+    "RelativePath": "api/v3/FaceIdentity/{faceIdentityId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "faceIdentityId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.FaceIdentity.FaceIdentityInfo",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "DeleteIdentity"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Post",
+    "RelativePath": "api/v3/FaceIdentity/{faceIdentityId}/addMetadata",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "faceIdentityId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.Request.FaceIdentity.MetadataRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.MetadataInfo",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "AddMetadata"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "AddFaceInExistingIdentity",
+    "RelativePath": "api/v3/FaceIdentity/{faceIdentityId}/face",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "faceIdentityId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "model",
+        "Type": "MxfaceWebAPI.Models.Request.FaceIdentity.AddFaceRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.FaceIdentity.FaceInfo",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "AddFace"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "GetFace",
+    "RelativePath": "api/v3/FaceIdentity/{faceIdentityId}/faces",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "faceIdentityId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.FaceIdentity.GetFaceResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "GetFacesByIdentity"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Delete",
+    "RelativePath": "api/v3/FaceIdentity/{faceIdentityId}/faces/{faceId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "faceId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "faceIdentityId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.FaceIdentity.FaceInfo",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "DeleteFace"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Put",
+    "RelativePath": "api/v3/FaceIdentity/{faceIdentityId}/updateGroup",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "faceIdentityId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.Request.FaceIdentity.UpdateGroupRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.FaceIdentity.FaceIdentityInfo",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "UpdateIdentity"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Put",
+    "RelativePath": "api/v3/FaceIdentity/{faceIdentityId}/updatemetadata",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "faceIdentityId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.Request.FaceIdentity.MetadataRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.MetadataInfo",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "UpdateMetadata"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.FaceIdentityController",
+    "Method": "Search",
+    "RelativePath": "api/v3/FaceIdentity/search",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "MxfaceWebAPI.Models.Request.FaceIdentity.SearchFaceIdentity",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "MxfaceWebAPI.Models.Response.FaceIdentity.SearchFaceIdentityResponse",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "search"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.GroupController",
+    "Method": "Get",
+    "RelativePath": "api/v3/Group",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "groupName",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [],
+    "EndpointName": "getByName"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.GroupController",
+    "Method": "Post",
+    "RelativePath": "api/v3/Group",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "model",
+        "Type": "MxfaceWebAPI.Models.Request.Group.CreateGroupRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [],
+    "EndpointName": "createGroup"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.GroupController",
+    "Method": "Get",
+    "RelativePath": "api/v3/Group/{groupId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "groupId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [],
+    "EndpointName": "getByGroupId"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.GroupController",
+    "Method": "Put",
+    "RelativePath": "api/v3/Group/{groupId}",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "groupId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      },
+      {
+        "Name": "model",
+        "Type": "MxfaceWebAPI.Models.Request.Group.CreateGroupRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [],
+    "EndpointName": "UpdateGroup"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.V3.GroupController",
+    "Method": "Delete",
+    "RelativePath": "api/v3/Group/{groupId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "groupId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [],
+    "EndpointName": "DeleteGroup"
+  },
+  {
+    "ContainingType": "MxfaceWebAPI.Controllers.WeatherForecastController",
+    "Method": "Get",
+    "RelativePath": "WeatherForecast",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.IEnumerable\u00601[[MxfaceWebAPI.WeatherForecast, MxfaceWebAPI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ],
+    "EndpointName": "GetWeatherForecast"
+  }
+]

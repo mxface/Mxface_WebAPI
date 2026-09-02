@@ -1,0 +1,6 @@
+2026-08-27 11:17:41.656 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-27 11:17:41.664 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-27 11:17:41.668 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-27 11:17:41.671 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-27 11:18:02.869 [Warning] Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionMiddleware: Failed to determine the https port for redirect.
+2026-08-27 11:18:03.074 [Warning] MxfaceWebAPI.Filters.APIAuthorizationFilterAttribute: Rejected /api/v3/FaceIdentity: missing subscriptionkey header

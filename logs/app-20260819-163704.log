@@ -1,0 +1,22 @@
+2026-08-19 16:37:05.827 [Information] Microsoft.Hosting.Lifetime: Now listening on: http://localhost:5094
+2026-08-19 16:37:05.839 [Information] Microsoft.Hosting.Lifetime: Application started. Press Ctrl+C to shut down.
+2026-08-19 16:37:05.844 [Information] Microsoft.Hosting.Lifetime: Hosting environment: Development
+2026-08-19 16:37:05.849 [Information] Microsoft.Hosting.Lifetime: Content root path: E:\MxFaceNewWork\MxfaceWebAPI\MxfaceWebAPI
+2026-08-19 16:37:21.856 [Warning] Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionMiddleware: Failed to determine the https port for redirect.
+2026-08-19 16:38:41.308 [Information] Npgsql.Command: Command execution completed (duration=30ms): select c.id
+from faceclient_db.user_api_keys k
+join faceclient_db.client_users u on u.id = k.userid
+join faceclient_db.clients c on c.id = u.clientid
+where k.secretkey = $1
+  and k.status = $2
+  and (k.expiresat is null or k.expiresat > now())
+2026-08-19 16:38:41.322 [Information] MxfaceWebAPI.Grpc.ClientApiEnvelopeFactory: Outbound ClientApiRequest: Ver=1.0 ReqId=fb12db57-f5b7-45cc-b81f-43bf601fa368 Ts=2026-08-19T11:08:41 Enc=0 Mode=0 Data={"fingerPrint1":"a","fingerPrint2":"b"}
+2026-08-19 16:38:41.361 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: Start processing HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Match
+2026-08-19 16:38:41.366 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Sending HTTP request POST http://172.18.108.135:11121/mantra.abis.client.ClientApiService/Match
+2026-08-19 16:38:41.439 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.ClientHandler: Received HTTP response headers after 63.0819ms - 200
+2026-08-19 16:38:41.444 [Information] System.Net.Http.HttpClient.ClientApiServiceClient.LogicalHandler: End processing HTTP request after 86.499ms - 200
+2026-08-19 16:38:41.480 [Information] Npgsql.Command: Command execution completed (duration=10ms): insert into faceclient_db.transactions
+    (clientid, reqid, reqpaylod, rects, respayload, error, rests, errorpoint,
+     featuretype, quotacount, clientip, createdby, createdat)
+values
+    ($1, $2, $3::jsonb, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)

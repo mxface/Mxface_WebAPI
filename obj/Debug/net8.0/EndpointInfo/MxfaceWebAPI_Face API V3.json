@@ -1,0 +1,121 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "MXFace - Face API V3",
+    "version": "v3"
+  },
+  "paths": {
+    "/api/v3/Face/Quality": {
+      "post": {
+        "tags": [
+          "Face"
+        ],
+        "operationId": "Quality",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "QualityRequest": {
+        "type": "object",
+        "properties": {
+          "encoded_image": {
+            "type": "string",
+            "nullable": true
+          },
+          "minimumDistanceBetweenEyeThreshold": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "attributes": {
+            "type": "boolean",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "QualityResponse": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorMessage": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorCode": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "result": {
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "SubscriptionKey": {
+        "type": "apiKey",
+        "description": "Subscription key required by the biometric (Iris/FingerPrint) endpoints.",
+        "name": "subscriptionkey",
+        "in": "header"
+      }
+    }
+  },
+  "security": [
+    {
+      "SubscriptionKey": [ ]
+    }
+  ]
+}
