@@ -56,7 +56,7 @@ namespace MxfaceWebAPI.Data
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Postgres command failed: {Sql}", sql);
+                _logger.LogError(ex, "Postgres command failed.");
                 throw;
             }
         }
@@ -70,7 +70,7 @@ namespace MxfaceWebAPI.Data
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Postgres command failed: {Sql}", sql);
+                _logger.LogError(ex, "Postgres command failed.");
                 throw;
             }
         }

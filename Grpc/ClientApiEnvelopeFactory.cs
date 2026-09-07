@@ -108,21 +108,6 @@ namespace MxfaceWebAPI.Grpc
                 Data = dataNode.ToJsonString(DataSerializerOptions)
             };
 
-            // Full outbound gRPC request object as one JSON document, for cross-checking with the
-            // ABIS/master team when a call fails — SubscriptionKey deliberately excluded (never log
-            // raw caller secrets). "data" is embedded as a real nested object (reusing wrappedDataNode,
-            // not envelope.Data) so this logs as clean JSON rather than a string containing escaped JSON.
-            var logPayload = new JsonObject
-            {
-                ["ver"] = envelope.Ver,
-                ["reqId"] = envelope.ReqId,
-                ["ts"] = envelope.Ts,
-                ["enc"] = envelope.Enc,
-                ["mode"] = envelope.Mode,
-                ["data"] = dataNode
-            };
-
-            _logger.LogInformation("Outbound ClientApiRequest: {RequestJson}", logPayload.ToJsonString());
             return envelope;
         }
     }

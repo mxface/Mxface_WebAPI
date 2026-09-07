@@ -1,16 +1,17 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using MxfaceWebAPI.Common;
 using MxfaceWebAPI.Data;
 using MxfaceWebAPI.Filters;
 using MxfaceWebAPI.Grpc;
 using MxfaceWebAPI.Grpc.AbisClient;
 using MxfaceWebAPI.Models;
-using MxfaceWebAPI.Services;
 using MxfaceWebAPI.Models.Request.FaceIdentity;
 using MxfaceWebAPI.Models.Response;
 using MxfaceWebAPI.Models.Response.FaceIdentity;
+using MxfaceWebAPI.Services;
 
 
 
@@ -48,24 +49,21 @@ namespace MxfaceWebAPI.Controllers.V3
         // Face API's per-field messages (see D:\LiveBranchDeployment\webapi.face reference),
         // not the generic Finger/Iris contract message, per explicit instruction to preserve the
         // existing Face API contract.
-        private const string InvalidRequestMessage = "Invalid request. Please pass valid json with all required parameters.";
+        
 
         private readonly ClientApiService.ClientApiServiceClient _clientApiClient;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _config;
 
         #region For Refrence Call
-        public FaceIdentityController(
-            ClientApiService.ClientApiServiceClient clientApiClient,
-            IClientApiEnvelopeFactory envelopeFactory,
-            IConfiguration configuration,
-            IPostgresHelper postgresHelper,
-            ILogger<FaceIdentityController> logger,
-            IEmailService emailService)
-            : base(envelopeFactory, configuration, postgresHelper, logger)
+        public FaceIdentityController(ClientApiService.ClientApiServiceClient clientApiClient, IClientApiEnvelopeFactory envelopeFactory,
+                                       IConfiguration configuration, IPostgresHelper postgresHelper, ILogger<FaceIdentityController> logger, 
+                                       IEmailService emailService) : base(envelopeFactory, configuration, postgresHelper, logger)
+
         {
             _clientApiClient = clientApiClient;
             _emailService = emailService;
+            _config = configuration;
         }
         #endregion
 
@@ -83,6 +81,9 @@ namespace MxfaceWebAPI.Controllers.V3
         public async Task<FaceIdentityInfo> Enroll([FromBody] Models.Request.FaceIdentity.CreateFaceIdentityRequest model)
         {
             var response = new FaceIdentityInfo();
+            bool isValid = true;
+            float Quality = float.Parse(_config["FaceIdentityQuality"]); // MXface Defined quality
+            int MatchedConfidence = string.IsNullOrEmpty(_config["MatchedConfidence"]) ? 60 : Int32.Parse(_config["MatchedConfidence"]);
 
             if (model == null)
             {
@@ -131,9 +132,11 @@ namespace MxfaceWebAPI.Controllers.V3
                 var groupName = model.GroupIds.First().ToString();
                 var bioDataEntry = new BioData { Format = format, Version = ImageBioDataVersion, Wd = width, Ht = height, Data = model.Encoded_Image };
 
+                int clientId = GetClientID();
                 // Reference D:\LiveBranchDeployment\webapi.face FaceIdentityController.cs lines
                 // 192-250: before enrolling, search the target group for a similar existing
                 // identity — reject unless the caller explicitly opts in via ForceAdd.
+
                 if (!model.ForceAdd)
                 {
                     var searchPayload = new FaceSearchMasterPayload
@@ -422,7 +425,7 @@ namespace MxfaceWebAPI.Controllers.V3
             return await ReturnResponse(response).ConfigureAwait(true);
         }
 
-
+        #region For DeleteFace
         [HttpDelete]
         [APIAuthorizationFilter]
         [Route("{faceIdentityId}/faces/{faceId}", Name = "DeleteFace")]
@@ -441,6 +444,13 @@ namespace MxfaceWebAPI.Controllers.V3
             // FaceInfo doesn't inherit BiomatricBaseResponse (no ErrorCode field), so ReturnResponse
             // can't key off it here — return the not-implemented status directly.
             return StatusCode(BiometricResponseCode.NotImplemented, response);
+        }
+        #endregion
+
+        private int GetClientID()
+        {
+            return 101;
+            //return _commonService.GetClientByKey(_httpContextAccessor.HttpContext.Request.Headers["subscriptionkey"].Single()).ClientId;
         }
 
     }
