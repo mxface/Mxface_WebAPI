@@ -16,7 +16,7 @@ namespace MxfaceWebAPI.Crypto
     /// Wire format (per ABIS_API_GUIDE's envelope diagram):
     ///   data = Base64( IV(12 bytes) || ciphertext || tag(16 bytes) ), AES-256-GCM, no padding.
     ///   Key  = Base64( RSA-OAEP-SHA256( AES key ) ) using the server's public key — always 344 chars.
-    ///   Envelope = { data, Key, Id (=keyId), RequestId, timestamp, ver:"2.0", enc:1 }.
+    ///   Envelope = { data, Key, Id (=keyId), RequestId, timestamp, ver:"1.0", enc:1 }.
     ///   The plaintext payload gets "_ts" and "_RequestId" embedded before encryption, matching
     ///   the outer timestamp/RequestId exactly (the server compares inner vs outer as a replay defence).
     ///   timestamp is Unix epoch MILLISECONDS — seconds triggers errorCode 42003 "Request timestamp
@@ -65,7 +65,7 @@ namespace MxfaceWebAPI.Crypto
                 ["Id"] = keyId,
                 ["RequestId"] = requestId,
                 ["timestamp"] = timestamp,
-                ["ver"] = "2.0",
+                ["ver"] = "1.0",
                 ["enc"] = 1
             };
         }

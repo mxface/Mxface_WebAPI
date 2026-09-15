@@ -38,6 +38,7 @@ namespace MxfaceWebAPI.Filters
             }
 
             context.HttpContext.Items["ClientId"] = client.ClientId;
+            context.HttpContext.Items["ClientCode"] = client.ClientCode;
             context.HttpContext.Items["SubscriptionKey"] = subscriptionKey;
 
             await next();

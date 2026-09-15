@@ -49,7 +49,7 @@ namespace MxfaceWebAPI.Controllers.V3
         // Face API's per-field messages (see D:\LiveBranchDeployment\webapi.face reference),
         // not the generic Finger/Iris contract message, per explicit instruction to preserve the
         // existing Face API contract.
-        
+
 
         private readonly ClientApiService.ClientApiServiceClient _clientApiClient;
         private readonly IEmailService _emailService;
@@ -57,7 +57,7 @@ namespace MxfaceWebAPI.Controllers.V3
 
         #region For Refrence Call
         public FaceIdentityController(ClientApiService.ClientApiServiceClient clientApiClient, IClientApiEnvelopeFactory envelopeFactory,
-                                       IConfiguration configuration, IPostgresHelper postgresHelper, ILogger<FaceIdentityController> logger, 
+                                       IConfiguration configuration, IPostgresHelper postgresHelper, ILogger<FaceIdentityController> logger,
                                        IEmailService emailService) : base(envelopeFactory, configuration, postgresHelper, logger)
 
         {
@@ -230,15 +230,75 @@ namespace MxfaceWebAPI.Controllers.V3
         [APIAuthorizationFilter]
         [MapToApiVersion("3.0")]
         [ApiExplorerSettings(GroupName = "Identity V3")]
-        public Task<ActionResult<SearchFaceIdentityResponse>> Search([FromBody] Models.Request.FaceIdentity.SearchFaceIdentity request)
+        public async Task<ActionResult<SearchFaceIdentityResponse>> Search([FromBody] Models.Request.FaceIdentity.SearchFaceIdentity request)
         {
             // Stub only — was left as an unfinished mix of an empty try body and mismatched
             // catch-block return types (FaceIdentityInfo vs. the declared
             // ActionResult<SearchFaceIdentityResponse>). Real implementation is a separate task.
-            return Task.FromResult<ActionResult<SearchFaceIdentityResponse>>(StatusCode(501));
+
+            SearchFaceIdentityResponse response = new SearchFaceIdentityResponse();
+            float Quality = 0.7f;
+            int MatchedConfidence = string.IsNullOrEmpty(_config["MatchedConfidence"]) ? 60 : Int32.Parse(_config["MatchedConfidence"]);
+
+            try
+            {
+
+                if (request == null)
+                {
+                    response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
+                    response.ErrorCode = 400;
+                }
+                else if (request.Limit <= 0)
+                {
+                    response.ErrorMessage = "Limit should be greater than 0";
+                    response.ErrorCode = 400;
+                }
+                else if (request.Limit > 10)
+                {
+                    response.ErrorMessage = "Limit should be less than 10";
+                    response.ErrorCode = 400;
+                }
+                else if (request.Limit <= 0)
+                {
+                    response.ErrorMessage = "Limit should be greater than 0";
+                    response.ErrorCode = 400;
+                }
+                else if (string.IsNullOrWhiteSpace(request.Encoded_Image))
+                {
+                    response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest + " Encoded Image is required.";
+                    response.ErrorCode = 400;
+                }
+                else
+                {
+                    if (request.QualityThreshold.HasValue && (request.QualityThreshold > 0 && request.QualityThreshold < 20 || request.QualityThreshold <= 0))
+                    {
+                        response.ErrorCode = 400;
+                        response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.ClientQualityThersholdMsg;
+
+                        return await ReturnResponse(response).ConfigureAwait(true);
+                    }
+                    else
+                    {
+                        //Quality = request.QualityThreshold.HasValue ? (request.QualityThreshold.Value / 100f) : Quality;
+                        Quality = request.QualityThreshold.HasValue ? request.QualityThreshold.Value : Quality;
+                    }
+                    if (request.MatchConfidence.HasValue && request.MatchConfidence.Value > 0)
+                    {
+                        MatchedConfidence = request.MatchConfidence.Value;
+                    }
+
+                }
+            }
+            catch (Exception ex)
+            {
+                throw;
+            }
+            return StatusCode(501);
         }
         #endregion
 
+
+        #region face-AddFace API
         [HttpPost]
         [Route("{faceIdentityId}/face", Name = "AddFace")]
         [ApiExplorerSettings(GroupName = "Identity V3")]
@@ -256,6 +316,7 @@ namespace MxfaceWebAPI.Controllers.V3
 
         }
 
+        #endregion
 
 
         #region

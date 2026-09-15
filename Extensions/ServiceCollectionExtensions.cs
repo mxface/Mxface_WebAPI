@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Microsoft.AspNetCore.RateLimiting;
+using MxfaceWebAPI.Data;
 using MxfaceWebAPI.Services;
 
 namespace MxfaceWebAPI.Extensions
@@ -13,6 +14,8 @@ namespace MxfaceWebAPI.Extensions
             services.AddScoped<ICommonService, CommonService>();
             services.AddScoped<IEmailService, EmailService>();
             services.AddSingleton<IAbisAdminApiClient, AbisAdminApiClient>();
+            services.AddScoped<IGroupDataAccess, GroupDataAccess>();
+            services.AddScoped<IGroupService, GroupService>();
 
             return services;
         }

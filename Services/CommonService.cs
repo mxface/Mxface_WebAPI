@@ -30,7 +30,7 @@ namespace MxfaceWebAPI.Services
             }
 
             const string sql = """
-                select c.id
+                select c.id as clientid, c.clientcode
                 from faceclient_db.user_api_keys k
                 join faceclient_db.client_users u on u.id = k.userid
                 join faceclient_db.clients c on c.id = u.clientid
@@ -41,8 +41,8 @@ namespace MxfaceWebAPI.Services
 
             try
             {
-                var clientId = await _postgresHelper.ExecuteScalarAsync(sql, subscriptionKey, ActiveKeyStatus);
-                return clientId is long id ? new ClientDetails { ClientId = id } : null;
+                var results = await _postgresHelper.ExecuteSelectAsync<ClientDetails>(sql, subscriptionKey, ActiveKeyStatus);
+                return results.FirstOrDefault();
             }
             catch (Exception ex)
             {

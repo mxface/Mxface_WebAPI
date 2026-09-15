@@ -31,6 +31,7 @@ namespace MxfaceWebAPI.Services
         private readonly CookieContainer _cookies;
         private readonly AbisAdminApiSettings _settings;
         private readonly ILogger<AbisAdminApiClient> _logger;
+        private readonly SemaphoreSlim _loginLock = new(1, 1);
         private EncryptionKeyInfo? _currentKey;
 
         public AbisAdminApiClient(IConfiguration configuration, ILogger<AbisAdminApiClient> logger)
@@ -116,6 +117,45 @@ namespace MxfaceWebAPI.Services
         public Task<AdminApiResponse<AdminClientResponse>> UpdateClientAsync(int clientNumericId, AdminCreateClientRequest request, CancellationToken cancellationToken = default) =>
             SendEncryptedAsync<AdminClientResponse>(HttpMethod.Put, $"admin/clients/{clientNumericId}", request, requiresCsrf: true, cancellationToken);
 
+        public Task<AdminApiResponse<AdminClientResponse>> UpdateClientGroupsAsync(int clientNumericId, GroupsDelta delta,string Clientcode, CancellationToken cancellationToken = default) =>
+            SendEncryptedAsync<AdminClientResponse>(HttpMethod.Put, $"admin/clients/{Clientcode}", new ClientGroupsPatchRequest { Groups = delta }, requiresCsrf: true, cancellationToken);
+
+        // Nothing else in this app calls LoginAsync explicitly — this instance is a singleton with
+        // its own cookie jar, so the first CSRF-protected call after startup (or after the session
+        // expires) needs to establish it on demand rather than failing and asking the caller to log
+        // in first. _loginLock serializes concurrent callers so a cold-start burst of requests
+        // triggers one login, not one per request.
+        private async Task<AdminApiResponse<TResponse>?> EnsureLoggedInAsync<TResponse>(CancellationToken cancellationToken)
+        {
+            if (ReadCsrfToken() is not null)
+            {
+                return null;
+            }
+
+            await _loginLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                // Re-check — another caller may have already logged in while this one was waiting.
+                if (ReadCsrfToken() is not null)
+                {
+                    return null;
+                }
+
+                var loginResult = await LoginAsync(cancellationToken).ConfigureAwait(false);
+                if (!loginResult.IsSuccess)
+                {
+                    _logger.LogError("Auto-login before a CSRF-protected Admin API call failed: {Error}", loginResult.ErrorMessage);
+                    return AdminApiResponse<TResponse>.Failure(loginResult.StatusCode, loginResult.ErrorMessage ?? "Auto-login before this endpoint failed.");
+                }
+
+                return null;
+            }
+            finally
+            {
+                _loginLock.Release();
+            }
+        }
+
         private async Task<AdminApiResponse<TResponse>> SendEncryptedAsync<TResponse>(
             HttpMethod method, string path, object payload, bool requiresCsrf, CancellationToken cancellationToken)
         {
@@ -143,10 +183,16 @@ namespace MxfaceWebAPI.Services
 
                 if (requiresCsrf)
                 {
+                    var loginFailure = await EnsureLoggedInAsync<TResponse>(cancellationToken).ConfigureAwait(false);
+                    if (loginFailure is not null)
+                    {
+                        return loginFailure;
+                    }
+
                     var csrf = ReadCsrfToken();
                     if (string.IsNullOrEmpty(csrf))
                     {
-                        return AdminApiResponse<TResponse>.Failure(0, "No ABIS_CSRF cookie present — call LoginAsync before this endpoint.");
+                        return AdminApiResponse<TResponse>.Failure(0, "No ABIS_CSRF cookie present even after a successful login.");
                     }
                     request.Headers.Add("X-CSRF-Token", csrf);
                 }
@@ -266,6 +312,10 @@ namespace MxfaceWebAPI.Services
             return null;
         }
 
-        public void Dispose() => _httpClient.Dispose();
+        public void Dispose()
+        {
+            _httpClient.Dispose();
+            _loginLock.Dispose();
+        }
     }
 }

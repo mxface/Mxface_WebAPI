@@ -10,9 +10,11 @@ namespace MxfaceWebAPI.Models.AdminApi
     }
 
     /// <summary>
-    /// Body for both POST /admin/clients (create) and PUT /admin/clients/{id} (update / sync groups —
-    /// there is no separate group API, so updates must resend every client field plus the full desired
-    /// groups array; anything omitted from <see cref="Groups"/> gets deleted).
+    /// Body for POST /admin/clients (create). Also usable for a full PUT /admin/clients/{id}
+    /// (e.g. renaming the org alongside other fields) — but for groups-only changes, prefer
+    /// <see cref="ClientGroupsPatchRequest"/>/<c>UpdateClientGroupsAsync</c> instead: since
+    /// 02-Sep-2026 PUT is merge-patch (a key not sent is left alone), so there's no need to
+    /// resend every field just to touch groups.
     /// </summary>
     public sealed class AdminCreateClientRequest
     {
@@ -56,6 +58,34 @@ namespace MxfaceWebAPI.Models.AdminApi
         public bool? AllowUnknownPositionMatch { get; set; }
         public bool? AllowUnknownPositionIdentify { get; set; }
         public bool? AllowUnknownPositionAuth { get; set; }
+    }
+
+    /// <summary>Partial update of one existing group within a client's groups delta (see
+    /// <see cref="GroupsDelta"/>) — only <see cref="Id"/> is required; omitted
+    /// <see cref="IsDefault"/>/<see cref="Description"/> are left unchanged server-side
+    /// (merge-patch semantics since 02-Sep-2026). GroupName is immutable and not included here.</summary>
+    public sealed class AdminClientGroupUpdate
+    {
+        public int Id { get; set; }
+        public bool? IsDefault { get; set; }
+        public string? Description { get; set; }
+    }
+
+    /// <summary>The merge-patch "groups" delta accepted by PUT /admin/clients/{id} since
+    /// 02-Sep-2026 — add/update/remove only the groups named here; every other group, and every
+    /// other client field, is left untouched.</summary>
+    public sealed class GroupsDelta
+    {
+        public List<AdminClientGroup>? Add { get; set; }
+        public List<AdminClientGroupUpdate>? Update { get; set; }
+        public List<int>? Remove { get; set; }
+    }
+
+    /// <summary>Body for PUT /admin/clients/{id} when only touching groups — merge-patch means
+    /// no other client field needs to be (or should be) included.</summary>
+    public sealed class ClientGroupsPatchRequest
+    {
+        public GroupsDelta Groups { get; set; } = new();
     }
 
     public sealed class AdminClientResponse

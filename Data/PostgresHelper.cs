@@ -1,3 +1,4 @@
+using System.Reflection;
 using Npgsql;
 using MxfaceWebAPI.Models;
 
@@ -75,12 +76,75 @@ namespace MxfaceWebAPI.Data
             }
         }
 
+        public async Task<List<T>> ExecuteSelectAsync<T>(string sql, params object[] parameters) where T : new()
+        {
+            try
+            {
+                await using var command = CreateCommand(sql, parameters);
+                await using var reader = await command.ExecuteReaderAsync();
+
+                var properties = typeof(T)
+                    .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(p => p.CanWrite)
+                    .ToDictionary(p => p.Name, StringComparer.OrdinalIgnoreCase);
+
+                var results = new List<T>();
+                while (await reader.ReadAsync())
+                {
+                    var item = new T();
+                    for (var i = 0; i < reader.FieldCount; i++)
+                    {
+                        if (!properties.TryGetValue(reader.GetName(i), out var property))
+                        {
+                            continue;
+                        }
+
+                        var value = reader.GetValue(i);
+                        property.SetValue(item, ConvertValue(value, property.PropertyType));
+                    }
+
+                    results.Add(item);
+                }
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Postgres command failed.");
+                throw;
+            }
+        }
+
+        // Convert.ChangeType can't target DateTimeOffset (it doesn't implement IConvertible), so
+        // that conversion is handled explicitly — Npgsql returns timestamptz columns as a UTC
+        // DateTime. Everything else goes through Convert.ChangeType against the property's
+        // underlying type (unwrapping Nullable<T> first).
+        private static object? ConvertValue(object value, Type targetType)
+        {
+            if (value is DBNull)
+            {
+                return null;
+            }
+
+            var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+            if (underlyingType == typeof(DateTimeOffset))
+            {
+                return new DateTimeOffset(DateTime.SpecifyKind((DateTime)value, DateTimeKind.Utc));
+            }
+
+            return Convert.ChangeType(value, underlyingType);
+        }
+
         private NpgsqlCommand CreateCommand(string sql, object[] parameters)
         {
             var command = _dataSource.CreateCommand(sql);
             foreach (var parameter in parameters)
             {
-                command.Parameters.AddWithValue(parameter);
+                // A boxed null value type (e.g. a null long?) becomes a CLR null, not
+                // DBNull.Value — Npgsql's parameter type-inference throws on a raw CLR null, so
+                // it must be normalized here before AddWithValue.
+                command.Parameters.AddWithValue(parameter ?? DBNull.Value);
             }
 
             return command;

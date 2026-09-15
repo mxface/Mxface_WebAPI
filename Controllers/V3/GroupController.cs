@@ -2,6 +2,8 @@ using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MxfaceWebAPI.Filters;
+using MxfaceWebAPI.Models;
+using MxfaceWebAPI.Services;
 
 namespace MxfaceWebAPI.Controllers.V3
 {
@@ -14,58 +16,106 @@ namespace MxfaceWebAPI.Controllers.V3
     [ApiVersion("3.0")]
     public class GroupController : ControllerBase
     {
-        #region For Refrence Call
-        public GroupController() { }
-        #endregion
+        private readonly IGroupService _groupService;
 
-        // Stubs only — build-blocking references to legacy-only symbols (_logmanager,
-        // _emailService, _groupService, ApiResponse, Entity.DBEntity.Group,
-        // InternalAPI.Response.ParavisionAPI.GroupResponse, ReturnResponse) removed. Per the
-        // ABIS Admin API guide (Step 5 of 7), group create/update/delete all go through the
-        // client's PUT, not a dedicated group endpoint like this one implies — the real
-        // implementation for these 5 actions is a separate, later task.
+        public GroupController(IGroupService groupService)
+        {
+            _groupService = groupService;
+        }
+
+        // Resolved by APIAuthorizationFilterAttribute and stashed in HttpContext.Items — same
+        // pattern as BiometricControllerBase.ResolvedClientId, kept local here since this
+        // controller doesn't inherit that base.
+        private long? ResolvedClientId =>
+            HttpContext.Items.TryGetValue("ClientId", out var value) && value is long clientId ? clientId : null;
+
+
+        // Also resolved by APIAuthorizationFilterAttribute and stashed alongside ClientId — not
+        // used by any action yet (they still scope via ResolvedClientId/IGroupService as before);
+        // kept available for whatever needs it later.
+        private string? ResolvedClientCode =>
+            HttpContext.Items.TryGetValue("ClientCode", out var value) && value is string clientCode ? clientCode : null;
+
 
         [HttpGet("{groupId}", Name = "getByGroupId")]
         [APIAuthorizationFilter]
         [MapToApiVersion("3.0")]
         [ApiExplorerSettings(GroupName = "Identity V3")]
-        public Task<IActionResult> Get([FromRoute] int groupId)
+        public async Task<IActionResult> Get([FromRoute] int groupId)
         {
-            return Task.FromResult<IActionResult>(StatusCode(501));
+            var clientId = ResolvedClientId!.Value;
+            var group = await _groupService.GetGroupAsync(clientId, groupId);
+            return group is null
+                ? NotFound(new ApiErrorResponse { Code = StatusCodes.Status404NotFound, Error = "Group not found." })
+                : Ok(group);
         }
 
         [HttpGet(Name = "getByName")]
         [APIAuthorizationFilter]
         [ApiExplorerSettings(GroupName = "Identity V3")]
-        public Task<IActionResult> Get(string groupName)
+        public async Task<IActionResult> Get(string groupName)
         {
-            return Task.FromResult<IActionResult>(StatusCode(501));
+            if (string.IsNullOrWhiteSpace(groupName))
+            {
+                return BadRequest(new ApiErrorResponse { Code = StatusCodes.Status400BadRequest, Error = "groupName is required." });
+            }
+
+            var clientId = ResolvedClientId!.Value;
+            var group = await _groupService.GetGroupByNameAsync(clientId, groupName);
+            return group is null
+                ? NotFound(new ApiErrorResponse { Code = StatusCodes.Status404NotFound, Error = "Group not found." })
+                : Ok(group);
         }
 
         [HttpPost(Name = "createGroup")]
         [APIAuthorizationFilter]
         [ApiExplorerSettings(GroupName = "Identity V3")]
-        public Task<IActionResult> Post([FromBody] Models.Request.Group.CreateGroupRequest model)
+        public async Task<IActionResult> Post([FromBody] Models.Request.Group.CreateGroupRequest model)
         {
-            return Task.FromResult<IActionResult>(StatusCode(501));
+            if (model is null || string.IsNullOrWhiteSpace(model.GroupName))
+            {
+                return BadRequest(new ApiErrorResponse { Code = StatusCodes.Status400BadRequest, Error = "GroupName is required." });
+            }
+
+            var clientId = ResolvedClientId!.Value;
+            var clientCode = ResolvedClientCode ?? string.Empty;
+            var result = await _groupService.CreateGroupAsync(clientId, model, clientCode);
+            return result.Success
+                ? Ok(result.Group)
+                : StatusCode(result.StatusCode, new ApiErrorResponse { Code = result.StatusCode, Error = result.ErrorMessage ?? "Failed to create group." });
         }
 
         [Route("{groupId}", Name = "UpdateGroup")]
         [HttpPut]
         [APIAuthorizationFilter]
         [ApiExplorerSettings(GroupName = "Identity V3")]
-        public Task<IActionResult> Put([FromRoute] int groupId, [FromBody] Models.Request.Group.CreateGroupRequest model)
+        public async Task<IActionResult> Put([FromRoute] int groupId, [FromBody] Models.Request.Group.CreateGroupRequest model)
         {
-            return Task.FromResult<IActionResult>(StatusCode(501));
+            if (model is null)
+            {
+                return BadRequest(new ApiErrorResponse { Code = StatusCodes.Status400BadRequest, Error = "Request body is required." });
+            }
+
+            var clientId = ResolvedClientId!.Value;
+            var clientCode = ResolvedClientCode ?? string.Empty;
+            var result = await _groupService.UpdateGroupAsync(clientId, groupId, model, clientCode);
+            return result.Success
+                ? Ok(result.Group)
+                : StatusCode(result.StatusCode, new ApiErrorResponse { Code = result.StatusCode, Error = result.ErrorMessage ?? "Failed to update group." });
         }
 
         [APIAuthorizationFilter]
         [HttpDelete]
         [Route("{groupId}", Name = "DeleteGroup")]
         [ApiExplorerSettings(GroupName = "Identity V3")]
-        public Task<IActionResult> Delete([FromRoute] int groupId)
+        public async Task<IActionResult> Delete([FromRoute] int groupId)
         {
-            return Task.FromResult<IActionResult>(StatusCode(501));
+            var clientId = ResolvedClientId!.Value;
+            var clientCode = ResolvedClientCode ?? string.Empty;
+            var result = await _groupService.DeleteGroupAsync(clientId, groupId, clientCode);
+            return result.Success
+                ? Ok()
+                : StatusCode(result.StatusCode, new ApiErrorResponse { Code = result.StatusCode, Error = result.ErrorMessage ?? "Failed to delete group." });
         }
     }
 }
