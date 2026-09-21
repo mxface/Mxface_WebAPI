@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package mosip.abis.extract;
+
+option java_multiple_files = true;
+option java_package = "mosip.abis.extract";
+option csharp_namespace = "MxfaceWebAPI.Grpc.Extract";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+service ExtractTemplate {
+  rpc sendFingers (ExtractRequest) returns (ExtractResponse);
+  rpc healthCheck (google.protobuf.Empty) returns (HealthCheckResponse);
+  rpc extractBio(User) returns (BioResponse);
+
+  // v2.9 external analytics — stateless per-image bio-analysis for ONE modality (quality / liveness /
+  // detect / landmark / gender / attributes for face; quality + nfiq2 for finger; quality for iris).
+  rpc analyzeBio(AnalyzeBioRequest) returns (AnalyzeBioResponse);
+}
+
+// ---- v2.9 analytics messages (shared by master's BioAnalyze via import) ----
+
+message FeatureFlags {
+  bool quality    = 1;  // all modalities (finger also returns nfiq2)
+  bool liveness   = 2;  // all modalities (PAD) — license-gated
+  bool detect     = 3;  // FACE: rect + pose
+  bool crop       = 4;  // FACE: also return cropped face (only with detect)
+  bool landmark   = 5;  // FACE: eye/nose/mouth points
+  bool gender     = 6;  // FACE
+  bool attributes = 7;  // FACE: BDIFFaceProperty set
+  bool age        = 8;  // FACE — provision (currently OP_NOT_SUPPORTED)
+  bool emotion    = 9;  // FACE — provision (currently OP_NOT_SUPPORTED)
+}
+
+message AnalyzeImage {
+  bytes  data     = 1;
+  int32  format   = 2;   // BioFormat code (as BioData.format)
+  int32  position = 3;   // BioPosition code
+  int32  width    = 4;
+  int32  height   = 5;
+}
+
+message AnalyzeBioRequest {
+  int32 modality = 1;                   // BioModality code: 1=FINGER 2=IRIS 3=FACE
+  repeated AnalyzeImage images = 2;
+  FeatureFlags features = 3;
+}
+
+message AnalyzeBioResponse {
+  int32 errorCode = 1;                  // per-modality (our ErrorAPI); 0 = ok
+  string errorMessage = 2;
+  repeated FaceResult   faces   = 3;    // FACE
+  repeated FingerResult fingers = 4;    // FINGER
+  repeated IrisResult   irises  = 5;    // IRIS
+}
+
+message APoint    { int32 x = 1; int32 y = 2; }
+message ARect     { int32 x = 1; int32 y = 2; int32 w = 3; int32 h = 4; }
+message APose     { float yaw = 1; float pitch = 2; float roll = 3; }
+message ALandmark { string name = 1; int32 x = 2; int32 y = 3; }
+message ALiveness { bool live = 1; int32 score = 2; }
+
+message FaceResult {
+  ARect rect                  = 1;
+  APose pose                  = 2;
+  repeated APoint points      = 3;
+  repeated ALandmark landmarks = 4;
+  int32  quality              = 5;   // -1 = not computed
+  string gender               = 6;   // "" = not computed
+  int32  gender_confidence    = 7;
+  repeated string attributes  = 8;
+  int32  age                  = 9;   // -1 = not computed (provision)
+  string emotion              = 10;  // "" = not computed (provision)
+  ALiveness liveness          = 11;
+  bytes  cropped_face         = 12;
+  int32  ec                   = 13;  // per-face
+}
+
+message FingerResult {
+  int32 position   = 1;
+  int32 quality    = 2;   // -1 = not computed
+  int32 nfiq2      = 3;   // -1 = not computed
+  ALiveness liveness = 4;
+  int32 ec         = 5;
+}
+
+message IrisResult {
+  int32 position   = 1;
+  int32 quality    = 2;   // -1 = not computed
+  ALiveness liveness = 3;
+  int32 ec         = 4;
+}
+
+message ExtractRequest {
+  repeated ExtractRequestDTO extractRequest = 1;
+}
+
+message ExtractRequestDTO {
+  string bioMetricType = 1;
+  string bioMetricSubType = 2;
+  int32 formatType = 3;
+  bytes biometricData = 4;
+  string referenceId = 5;
+}
+
+message ExtractResponse {
+  bytes template = 1;
+}
+
+message HealthCheckResponse {
+  string status = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+message BioResponse {
+  int32 errorCode = 1;
+  User users = 2;
+  // SDK-resolved description of errorCode (e.g. "TOO_FEW_FEATURES").
+  // Populated by extractor which has the SDK loaded. Empty when errorCode == 0
+  // or when the response originates from an old extractor build —
+  // Master falls back to "Error <code>" in that case.
+  string errorMessage = 3;
+
+  // Per-biometric templates for intra-request de-duplication, populated ONLY when the
+  // request set User.dedup=true. One entry per input bio (modality+position tagged),
+  // each a single-bio PROP template — independent of how `users.bioData` fuses templates
+  // for the configured templatization. Empty when dedup=false or for old extractor builds
+  // (Master then falls back to per-bio extraction).
+  repeated BioData dedupTemplates = 4;
+
+  // Per-INPUT-image calculated quality (one entry per received bio, modality+position tagged),
+  // populated on enrol insert/update so Master can stamp calculated_quality / calculated_nfiq2 on
+  // each cbeff source-image row. `data` is empty here — only modality/position/quality fields are set.
+  // Empty for old extractor builds (Master then simply stores NULL for calculated quality).
+  repeated BioData inputQuality = 5;
+}
+
+message User {
+  string referenceId = 1;
+
+  // FINGER_ALL, FINGER_SEPARATE, IRIS_ALL ....
+  string templatization = 2;
+  //Out: FMR, FIR, IIR, FID, PROP ....
+  string outFormats = 3;
+  //In&Out:  Biometrics Data
+  repeated BioData bioData = 4;
+
+  // When true the extractor ALSO returns one per-biometric PROP template per input bio in
+  // BioResponse.dedupTemplates (for intra-request uniqueness). Default false = unchanged behaviour.
+  bool dedup = 5;
+}
+
+message BioData {
+  // Finger, Iris, Face, voice
+  int32 modality = 1;
+  //LeftIndex, RightIndex, LeftEye, RightEye, Face .....
+  int32 position = 2;
+  //In&Out:  Biometrics Data
+  //BMP, JPEG, PNG, RAW, FMR, FIR ....
+  int32 format = 3;
+  //Byte array of biometric data
+  bytes data = 4;
+
+  //Out format use only
+  int32 templatization = 5;
+
+  // BioVersion code (com.mantra.core.enums.BioVersion):
+  //   0=NONE, 1=ISO_2005, 2=ISO_2011, 3=ANSI_2004, 4=ANSI_2009.
+  // Required for FMR/FIR/IIR/FID/ANSI_378; 0 (NONE) for image / RAW / PROP.
+  int32 version = 6;
+
+  // Pixel dimensions, propagated from REST envelope `wd` / `ht`.
+  // Required when format == RAW (12) — raw pixel arrays have no embedded dimensions.
+  // Also used to validate raw-inside-FIR records when the inner image bytes don't
+  // start with a recognised image magic. Default 0 (omitted) for container formats
+  // (JPEG/PNG/BMP/WSQ/JP2/TIFF/FIR-with-compressed-inner) that carry their own
+  // dimensions.
+  int32 width = 7;
+  int32 height = 8;
+
+  // Extractor-CALCULATED quality, populated ONLY on BioResponse.inputQuality entries (not on
+  // request bioData or output templates). optional → field presence: absent = "not computed"
+  // (Master stores NULL), present = a real 0-100 score.
+  optional int32 calculated_quality = 9;   // SDK native quality 0-100, all modalities
+  optional int32 calculated_nfiq2   = 10;  // NFIQ2 0-100, FINGER only
+}

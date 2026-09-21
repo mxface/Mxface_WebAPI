@@ -1,15 +1,15 @@
-﻿using MxfaceWebAPI.Models.Response;
+using System.Text.Json.Serialization;
 
 namespace MxfaceWebAPI.Models
 {
     public class FaceAnalytics
     {
-        public FaceRectangle FaceRectangle { get; set; }
-        public FaceLandmark FaceLandmark { get; set; }
-        public FaceAnalytics FaceAttribute { get; set; }
-
-        public Blur Blur { get; set; }
-        public Exposure Exposure { get; set; }
-        public Noise Noise { get; set; }
+        // Old live API used PascalCase for this one key specifically; every other field here is
+        // already camelCase by default.
+        [JsonPropertyName("EstimatedAge")]
+        public string? EstimatedAge { get; set; }
+        public string? Gender { get; set; }
+        public string? Emotion { get; set; }
+        public int? Confidence { get; set; }
     }
 }

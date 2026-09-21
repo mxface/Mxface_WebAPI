@@ -23,6 +23,9 @@ option csharp_namespace = "MxfaceWebAPI.Grpc.AbisClient";
 
 package mantra.abis.client;
 
+// Reuse the analytics result/feature messages defined once in extract.proto (produced by the extractor).
+import "extract.proto";
+
 service ClientApiService {
   rpc Enrol      (ClientApiRequest) returns (ClientApiResponse);
   rpc Update     (ClientApiRequest) returns (ClientApiResponse);
@@ -32,6 +35,43 @@ service ClientApiService {
   rpc Match      (ClientApiRequest) returns (ClientApiResponse);
   rpc EnrolCount (ClientApiRequest) returns (ClientApiResponse);
   rpc Ping       (ClientApiRequest) returns (ClientApiResponse);
+
+  // Resolve a manual-review-held IdentifyBeforeEnrol job (called by the admin backend). Dedicated message.
+  rpc EnrolReview (EnrolReviewRequest) returns (EnrolReviewResponse);
+
+  // v2.9 external analytics — one gRPC for all modalities + features (quality/liveness/detect/landmark/
+  // gender/attributes; age/emotion provisioned). Logged as an ANALYTICS job. Typed response.
+  rpc BioAnalyze (BioAnalyzeRequest) returns (BioAnalyzeResponse);
+}
+
+// ---- v2.9 BioAnalyze (external analytics) ----
+// Context is minimal: subscription_key → client_id + kcl_user_id via fetchClient. req_id echoed (or a
+// server UUID if absent). All modalities in one call; feature flags per modality. Result is modality-wise.
+message BioAnalyzeRequest {
+  string subscription_key = 1;
+  string req_id           = 2;
+  repeated ModalityInput modalities = 3;
+}
+
+message ModalityInput {
+  int32 modality = 1;                                   // BioModality code: 1=FINGER 2=IRIS 3=FACE
+  repeated mosip.abis.extract.AnalyzeImage images = 2;
+  mosip.abis.extract.FeatureFlags features = 3;
+}
+
+message BioAnalyzeResponse {
+  int32  ec     = 1;                                    // top-level (our ErrorAPI)
+  string em     = 2;
+  string req_id = 3;                                    // echo / server-generated
+  repeated ModalityResult results = 4;
+}
+
+message ModalityResult {
+  int32 modality = 1;
+  int32 ec       = 2;                                   // per-modality
+  repeated mosip.abis.extract.FaceResult   faces   = 3;
+  repeated mosip.abis.extract.FingerResult fingers = 4;
+  repeated mosip.abis.extract.IrisResult   irises  = 5;
 }
 
 // Typed twin of the REST ApiRequest envelope. Field names map to the ApiRequest @JsonProperty keys.
@@ -60,4 +100,18 @@ message ClientApiRequest {
 
 message ClientApiResponse {
   string response_json = 1;    // JSON of ApiResponse / IdentifyApiResponse (all dynamic fields preserved)
+}
+
+// Manual-review resolution for the identify-before-enrol flow. Called directly on Master by the ADMIN
+// backend after it verifies operator access; Master trusts kcl_user_id and stamps the job (and citizen on
+// forceEnrol) with it.
+message EnrolReviewRequest {
+  int64  job_id      = 1;   // the held IDENTIFY_BEFORE_ENROL job id
+  string action      = 2;   // "forceEnrol" | "reject"
+  string comment     = 3;   // review comment (stored on the citizen for forceEnrol / on the job for reject)
+  string kcl_user_id = 4;   // reviewer identity (admin-verified) — Master stamps the job with it
+}
+
+message EnrolReviewResponse {
+  string response_json = 1;    // JSON of the wire ApiResponse
 }

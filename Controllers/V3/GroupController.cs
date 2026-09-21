@@ -2,13 +2,15 @@ using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MxfaceWebAPI.Filters;
-using MxfaceWebAPI.Models;
+using MxfaceWebAPI.Models.Response.Group;
 using MxfaceWebAPI.Services;
 
 namespace MxfaceWebAPI.Controllers.V3
 {
     // Subscription-key auth (via [APIAuthorizationFilter] on each action) gates these endpoints,
     // not the global JWT policy — AllowAnonymous opts out of that so the filter is what runs.
+    // Shapes here follow the published Group API v3 developer guide exactly — see
+    // GroupErrorResponse/GroupListResponse for the two shapes that differ from the rest of the app.
     [AllowAnonymous]
     [Route("api/v{version:apiVersion}/[controller]")]
     [ApiController]
@@ -29,13 +31,10 @@ namespace MxfaceWebAPI.Controllers.V3
         private long? ResolvedClientId =>
             HttpContext.Items.TryGetValue("ClientId", out var value) && value is long clientId ? clientId : null;
 
-
-        // Also resolved by APIAuthorizationFilterAttribute and stashed alongside ClientId — not
-        // used by any action yet (they still scope via ResolvedClientId/IGroupService as before);
-        // kept available for whatever needs it later.
+        // Also resolved by APIAuthorizationFilterAttribute and stashed alongside ClientId — used
+        // to build the ABIS admin/clients URL in GroupService's calls to IAbisAdminApiClient.
         private string? ResolvedClientCode =>
             HttpContext.Items.TryGetValue("ClientCode", out var value) && value is string clientCode ? clientCode : null;
-
 
         [HttpGet("{groupId}", Name = "getByGroupId")]
         [APIAuthorizationFilter]
@@ -46,35 +45,38 @@ namespace MxfaceWebAPI.Controllers.V3
             var clientId = ResolvedClientId!.Value;
             var group = await _groupService.GetGroupAsync(clientId, groupId);
             return group is null
-                ? NotFound(new ApiErrorResponse { Code = StatusCodes.Status404NotFound, Error = "Group not found." })
+                ? NotFound(GroupErrorResponse.Create(StatusCodes.Status404NotFound, "Could not find a Group with the specified ID"))
                 : Ok(group);
         }
 
         [HttpGet(Name = "getByName")]
         [APIAuthorizationFilter]
         [ApiExplorerSettings(GroupName = "Identity V3")]
-        public async Task<IActionResult> Get(string groupName)
+        public async Task<IActionResult> Get(string? groupName)
         {
+            var clientId = ResolvedClientId!.Value;
+
+            // Omitting groupName lists every group on the account; a name given is an exact,
+            // case-sensitive lookup — either way the response is a wrapped array, never bare.
             if (string.IsNullOrWhiteSpace(groupName))
             {
-                return BadRequest(new ApiErrorResponse { Code = StatusCodes.Status400BadRequest, Error = "groupName is required." });
+                var all = await _groupService.ListGroupsAsync(clientId);
+                return Ok(new GroupListResponse { Groups = all });
             }
 
-            var clientId = ResolvedClientId!.Value;
-            var group = await _groupService.GetGroupByNameAsync(clientId, groupName);
-            return group is null
-                ? NotFound(new ApiErrorResponse { Code = StatusCodes.Status404NotFound, Error = "Group not found." })
-                : Ok(group);
+            var match = await _groupService.GetGroupByNameAsync(clientId, groupName);
+            var groups = match is null ? new List<Models.Response.Group.GroupResponse>() : new List<Models.Response.Group.GroupResponse> { match };
+            return Ok(new GroupListResponse { Groups = groups });
         }
 
         [HttpPost(Name = "createGroup")]
         [APIAuthorizationFilter]
         [ApiExplorerSettings(GroupName = "Identity V3")]
-        public async Task<IActionResult> Post([FromBody] Models.Request.Group.CreateGroupRequest model)
+        public async Task<IActionResult> Post([FromBody] Models.Request.Group.CreateGroupRequest? model)
         {
-            if (model is null || string.IsNullOrWhiteSpace(model.GroupName))
+            if (model is null)
             {
-                return BadRequest(new ApiErrorResponse { Code = StatusCodes.Status400BadRequest, Error = "GroupName is required." });
+                return BadRequest(GroupErrorResponse.Create(StatusCodes.Status400BadRequest, "Group information is not valid"));
             }
 
             var clientId = ResolvedClientId!.Value;
@@ -82,18 +84,18 @@ namespace MxfaceWebAPI.Controllers.V3
             var result = await _groupService.CreateGroupAsync(clientId, model, clientCode);
             return result.Success
                 ? Ok(result.Group)
-                : StatusCode(result.StatusCode, new ApiErrorResponse { Code = result.StatusCode, Error = result.ErrorMessage ?? "Failed to create group." });
+                : StatusCode(result.StatusCode, GroupErrorResponse.Create(result.StatusCode, result.ErrorMessage ?? "Failed to create group."));
         }
 
         [Route("{groupId}", Name = "UpdateGroup")]
         [HttpPut]
         [APIAuthorizationFilter]
         [ApiExplorerSettings(GroupName = "Identity V3")]
-        public async Task<IActionResult> Put([FromRoute] int groupId, [FromBody] Models.Request.Group.CreateGroupRequest model)
+        public async Task<IActionResult> Put([FromRoute] int groupId, [FromBody] Models.Request.Group.CreateGroupRequest? model)
         {
             if (model is null)
             {
-                return BadRequest(new ApiErrorResponse { Code = StatusCodes.Status400BadRequest, Error = "Request body is required." });
+                return BadRequest(GroupErrorResponse.Create(StatusCodes.Status400BadRequest, "Group information is not valid"));
             }
 
             var clientId = ResolvedClientId!.Value;
@@ -101,7 +103,7 @@ namespace MxfaceWebAPI.Controllers.V3
             var result = await _groupService.UpdateGroupAsync(clientId, groupId, model, clientCode);
             return result.Success
                 ? Ok(result.Group)
-                : StatusCode(result.StatusCode, new ApiErrorResponse { Code = result.StatusCode, Error = result.ErrorMessage ?? "Failed to update group." });
+                : StatusCode(result.StatusCode, GroupErrorResponse.Create(result.StatusCode, result.ErrorMessage ?? "Failed to update group."));
         }
 
         [APIAuthorizationFilter]
@@ -114,8 +116,8 @@ namespace MxfaceWebAPI.Controllers.V3
             var clientCode = ResolvedClientCode ?? string.Empty;
             var result = await _groupService.DeleteGroupAsync(clientId, groupId, clientCode);
             return result.Success
-                ? Ok()
-                : StatusCode(result.StatusCode, new ApiErrorResponse { Code = result.StatusCode, Error = result.ErrorMessage ?? "Failed to delete group." });
+                ? Ok(result.Group)
+                : StatusCode(result.StatusCode, GroupErrorResponse.Create(result.StatusCode, result.ErrorMessage ?? "Failed to delete group."));
         }
     }
 }

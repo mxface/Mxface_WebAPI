@@ -1,28 +1,30 @@
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using MxfaceWebAPI.Common;
 using MxfaceWebAPI.Data;
-using MxfaceWebAPI.Models;
 using MxfaceWebAPI.Models.AdminApi;
 using MxfaceWebAPI.Models.Request.Group;
 using MxfaceWebAPI.Models.Response.Group;
+using Group = MxfaceWebAPI.Models.Group;
 
 namespace MxfaceWebAPI.Services
 {
     public class GroupService : IGroupService
     {
+        // Matches the documented Group API v3 contract: letters, digits, spaces, and \ _ [ ] ( ) -
+        private const int MaxGroupNameLength = 30;
+        private static readonly Regex ValidGroupNamePattern = new(@"^[A-Za-z0-9 \\_\[\]\(\)\-]+$", RegexOptions.Compiled);
+
         private readonly IGroupDataAccess _groupDataAccess;
-        private readonly IPostgresHelper _postgresHelper;
         private readonly IAbisAdminApiClient _abisAdminApiClient;
         private readonly ILogger<GroupService> _logger;
 
         public GroupService(
             IGroupDataAccess groupDataAccess,
-            IPostgresHelper postgresHelper,
             IAbisAdminApiClient abisAdminApiClient,
             ILogger<GroupService> logger)
         {
             _groupDataAccess = groupDataAccess;
-            _postgresHelper = postgresHelper;
             _abisAdminApiClient = abisAdminApiClient;
             _logger = logger;
         }
@@ -48,16 +50,17 @@ namespace MxfaceWebAPI.Services
 
         public async Task<GroupOperationResult> CreateGroupAsync(long clientId, CreateGroupRequest request, string clientCode)
         {
-            if (string.IsNullOrWhiteSpace(request.GroupName))
+            var validationError = ValidateGroupName(request.GroupName, requireGroupId: false, groupId: null);
+            if (validationError is not null)
             {
-                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, "GroupName is required.");
+                return validationError;
             }
 
-            //var abisClientId = await GetAbisClientIdAsync(clientId).ConfigureAwait(false);
-            //if (abisClientId is null)
-            //{
-            //    return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, "This client is not linked for ABIS group management.");
-            //}
+            var duplicate = await GetGroupByNameAsync(clientId, request.GroupName).ConfigureAwait(false);
+            if (duplicate is not null)
+            {
+                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, $"Group name {request.GroupName} already exists");
+            }
 
             var delta = new GroupsDelta
             {
@@ -65,10 +68,10 @@ namespace MxfaceWebAPI.Services
                 {
                     new() { GroupName = request.GroupName, IsDefault = request.IsDefault ?? false, Description = request.Description }
                 }
-            };            
-            var _cid=clientId;
-            var response = await _abisAdminApiClient.UpdateClientGroupsAsync(Convert.ToInt32(_cid), delta,clientCode).ConfigureAwait(false);
-            //var response = await _abisAdminApiClient.UpdateClientGroupsAsync(abisClientId.Value, delta).ConfigureAwait(false);
+            };
+
+            var cid = Convert.ToInt32(clientId);
+            var response = await _abisAdminApiClient.UpdateClientGroupsAsync(cid, delta, clientCode).ConfigureAwait(false);
             if (!response.IsSuccess || response.Data is null)
             {
                 _logger.LogError("CreateGroup: ABIS rejected add for client {ClientId}: {Error}", clientId, response.ErrorMessage);
@@ -100,16 +103,23 @@ namespace MxfaceWebAPI.Services
             return GroupOperationResult.Ok(ToResponse(inserted));
         }
 
-        public async Task<GroupOperationResult> UpdateGroupAsync(long clientId, int groupId, CreateGroupRequest request,string Code)
+        public async Task<GroupOperationResult> UpdateGroupAsync(long clientId, int groupId, CreateGroupRequest request, string clientCode)
         {
+            var validationError = ValidateGroupName(request.GroupName, requireGroupId: true, groupId: groupId);
+            if (validationError is not null)
+            {
+                return validationError;
+            }
+
             var existing = await _groupDataAccess.GetGroupByIdAsync(groupId, clientId).ConfigureAwait(false);
             if (existing is null)
             {
-                return GroupOperationResult.Fail(StatusCodes.Status404NotFound, "Group not found.");
+                return GroupOperationResult.Fail(StatusCodes.Status404NotFound, "Could not find a Group with the specified ID");
             }
 
-            if (!string.IsNullOrWhiteSpace(request.GroupName) &&
-                !string.Equals(request.GroupName, existing.GroupName, StringComparison.Ordinal))
+            // Confirmed with the ABIS API team: groupName can never be changed once a group is
+            // created — not even via a remove+add — only description/isDefault are updatable.
+            if (!string.Equals(request.GroupName, existing.GroupName, StringComparison.Ordinal))
             {
                 return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, "Group name cannot be changed once created.");
             }
@@ -117,12 +127,6 @@ namespace MxfaceWebAPI.Services
             if (existing.AbisGroupId is null)
             {
                 return GroupOperationResult.Fail(BiometricResponseCode.ServiceUnavailable, "This group was never successfully synced to ABIS.");
-            }
-
-            var abisClientId = await GetAbisClientIdAsync(clientId).ConfigureAwait(false);
-            if (abisClientId is null)
-            {
-                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, "This client is not linked for ABIS group management.");
             }
 
             var delta = new GroupsDelta
@@ -133,7 +137,8 @@ namespace MxfaceWebAPI.Services
                 }
             };
 
-            var response = await _abisAdminApiClient.UpdateClientGroupsAsync(abisClientId.Value, delta,Code).ConfigureAwait(false);
+            var cid = Convert.ToInt32(clientId);
+            var response = await _abisAdminApiClient.UpdateClientGroupsAsync(cid, delta, clientCode).ConfigureAwait(false);
             if (!response.IsSuccess)
             {
                 _logger.LogError("UpdateGroup: ABIS rejected update for group {GroupId} (client {ClientId}): {Error}", groupId, clientId, response.ErrorMessage);
@@ -155,12 +160,17 @@ namespace MxfaceWebAPI.Services
             return GroupOperationResult.Ok(ToResponse(existing));
         }
 
-        public async Task<GroupOperationResult> DeleteGroupAsync(long clientId, int groupId, string Code)
+        public async Task<GroupOperationResult> DeleteGroupAsync(long clientId, int groupId, string clientCode)
         {
+            if (groupId <= 0)
+            {
+                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, "Group id required");
+            }
+
             var existing = await _groupDataAccess.GetGroupByIdAsync(groupId, clientId).ConfigureAwait(false);
             if (existing is null)
             {
-                return GroupOperationResult.Fail(StatusCodes.Status404NotFound, "Group not found.");
+                return GroupOperationResult.Fail(StatusCodes.Status404NotFound, "Could not find a Group with the specified ID");
             }
 
             if (existing.AbisGroupId is null)
@@ -168,32 +178,51 @@ namespace MxfaceWebAPI.Services
                 return GroupOperationResult.Fail(BiometricResponseCode.ServiceUnavailable, "This group was never successfully synced to ABIS.");
             }
 
-            var abisClientId = await GetAbisClientIdAsync(clientId).ConfigureAwait(false);
-            if (abisClientId is null)
-            {
-                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, "This client is not linked for ABIS group management.");
-            }
-
             var delta = new GroupsDelta { Remove = new List<int> { existing.AbisGroupId.Value } };
 
-            var response = await _abisAdminApiClient.UpdateClientGroupsAsync(abisClientId.Value, delta, Code).ConfigureAwait(false);
+            var cid = Convert.ToInt32(clientId);
+            var response = await _abisAdminApiClient.UpdateClientGroupsAsync(cid, delta, clientCode).ConfigureAwait(false);
             if (!response.IsSuccess)
             {
                 // Surfaces ABIS's own message as-is — e.g. "still assigned to existing records" —
                 // rather than swallowing it, since that's a real, actionable rejection, not a 500.
                 _logger.LogWarning("DeleteGroup: ABIS rejected remove for group {GroupId} (client {ClientId}): {Error}", groupId, clientId, response.ErrorMessage);
-                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, response.ErrorMessage ?? "Failed to delete group.");
+                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, response.ErrorMessage ?? "Group cannot delete because it is being used by face identity");
             }
 
+            // Capture the response before the row is gone — the documented contract returns the
+            // deleted group's data, not an empty body.
+            var deletedResponse = ToResponse(existing);
+
             await _groupDataAccess.DeleteGroupAsync(groupId, clientId).ConfigureAwait(false);
-            return GroupOperationResult.Ok();
+            return GroupOperationResult.Ok(deletedResponse);
         }
 
-        private async Task<int?> GetAbisClientIdAsync(long clientId)
+        // Shared validation matching the documented Group API v3 messages and order exactly:
+        // groupName blank, then groupId missing/0 (update/delete only), then length, then charset.
+        private static GroupOperationResult? ValidateGroupName(string? groupName, bool requireGroupId, int? groupId)
         {
-            var value = await _postgresHelper.ExecuteScalarAsync(
-                "select abisclientid from faceclient_db.clients where id = $1", clientId).ConfigureAwait(false);
-            return value is int abisClientId ? abisClientId : null;
+            if (string.IsNullOrWhiteSpace(groupName))
+            {
+                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, "Group name is required");
+            }
+
+            if (requireGroupId && (groupId is null || groupId <= 0))
+            {
+                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, "Group id required");
+            }
+
+            if (groupName.Length > MaxGroupNameLength)
+            {
+                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, "Group name maximum 30 character as long");
+            }
+
+            if (!ValidGroupNamePattern.IsMatch(groupName))
+            {
+                return GroupOperationResult.Fail(BiometricResponseCode.BadRequest, "only \\, _,[,],(,),- special characters and space is allowed");
+            }
+
+            return null;
         }
 
         // No format was specified for this — a short random code, since callers never supply one
@@ -204,8 +233,6 @@ namespace MxfaceWebAPI.Services
         {
             GroupId = (int)group.GroupId,
             GroupName = group.GroupName,
-            Description = group.Description,
-            IsDefault = group.IsDefault,
             CreatedDate = group.CreatedAt,
             UpdatedDate = group.ModifyAt ?? group.CreatedAt
         };

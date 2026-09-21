@@ -1,4 +1,5 @@
 ﻿using Asp.Versioning;
+using Google.Protobuf;
 using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -6,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using MxfaceWebAPI.Common;
 using MxfaceWebAPI.Filters;
 using MxfaceWebAPI.Grpc.AbisClient;
+using MxfaceWebAPI.Grpc.Extract;
 using MxfaceWebAPI.Models;
 using MxfaceWebAPI.Models.Request.Face;
 using MxfaceWebAPI.Models.Response;
@@ -22,8 +24,27 @@ namespace MxfaceWebAPI.Controllers.V3
     [Route("api/v{version:apiVersion}/[controller]")]
     public class FaceController : ControllerBase
     {
-        // TODO: confirm the real "mode" value the master uses for a quality-only Match call.
-        private const int QualityCheckMode = 0;
+        // BioModality code — confirmed directly in abis_client.proto/extract.proto comments:
+        // 1=FINGER 2=IRIS 3=FACE.
+        private const int FaceModality = 3;
+
+        // TODO: confirm the real BioFormat/BioPosition integer codes with the ABIS/master team —
+        // neither abis_client.proto nor extract.proto defines what these integers mean (only
+        // BioModality is spelled out). These are placeholders so BioAnalyze wiring can ship and be
+        // corrected from real master feedback, same as this project's other flagged placeholders
+        // (see CLAUDE.md "Known placeholder/unconfirmed values").
+        private const int BioFormatBmp = 0;
+        private const int BioFormatJpeg = 1;
+        private const int BioFormatPng = 2;
+        private const int FacePosition = 0;
+
+        private static int MapBioFormatCode(string format) => format switch
+        {
+            "BMP" => BioFormatBmp,
+            "JPEG" => BioFormatJpeg,
+            "PNG" => BioFormatPng,
+            _ => throw new InvalidDataException($"Unsupported image format for BioAnalyze: {format}")
+        };
 
         private readonly ClientApiService.ClientApiServiceClient _clientApiClient;
         private readonly IConfiguration _configuration;
@@ -46,35 +67,107 @@ namespace MxfaceWebAPI.Controllers.V3
         [HttpPost("Quality", Name = "Quality")]
         [ApiExplorerSettings(GroupName = "Face API V3")]
         [APIAuthorizationFilter]
-        public async Task<QualityResponse> Quality([FromBody] QualityRequest request)
+        public async Task<ActionResult<FaceDetect>> Quality([FromBody] QualityRequest request)
         {
-            var response = new QualityResponse();
+            if (request == null || string.IsNullOrWhiteSpace(request.EncodedImage))
+            {
+                return StatusCode(BiometricResponseCode.BadRequest, new QualityResponse
+                {
+                    Code = BiometricResponseCode.BadRequest,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest
+                });
+            }
+
             try
             {
-                // TODO: enc=0 (plaintext) until session-key/HMAC signing is implemented — see
-                // abis_client.proto. skey/ci/hmac are only meaningful on the encrypted path.
-                var grpcRequest = new ClientApiRequest
+                // BioAnalyze is its own directly-typed RPC (not the generic ClientApiRequest
+                // envelope Match/Enrol/etc. use) — was previously (wrongly) calling MatchAsync, a
+                // 1:1 verify RPC expecting a probe/gallery payload, which the master correctly
+                // rejected (confirmed live: ec=-1017 "Probe biometric data is required").
+                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.EncodedImage);
+                var imageBytes = Convert.FromBase64String(request.EncodedImage);
+
+                var analyzeImage = new AnalyzeImage
                 {
-                    SubscriptionKey = _configuration["GrpcServices:SubscriptionKey"] ?? string.Empty,
-                    ReqId = Guid.NewGuid().ToString(),
-                    Ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(),
-                    Enc = 0,
-                    Mode = QualityCheckMode,
-                    Data = System.Text.Json.JsonSerializer.Serialize(request)
+                    Data = ByteString.CopyFrom(imageBytes),
+                    Format = MapBioFormatCode(format),
+                    Position = FacePosition,
+                    Width = width ?? 0,
+                    Height = height ?? 0
                 };
 
-                var grpcResponse = await _clientApiClient.MatchAsync(grpcRequest);
+                var bioAnalyzeRequest = new BioAnalyzeRequest
+                {
+                    // Forward the caller's own key (same header APIAuthorizationFilterAttribute
+                    // reads) instead of a static config value — matches every other controller.
+                    SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
+                    ReqId = Guid.NewGuid().ToString(),
+                    Modalities =
+                    {
+                        new ModalityInput
+                        {
+                            Modality = FaceModality,
+                            Images = { analyzeImage },
+                            Features = new FeatureFlags { Quality = true }
+                        }
+                    }
+                };
 
-                response.Result = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(grpcResponse.ResponseJson);
-                response.Code = 200;
+                var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+
+                if (grpcResponse.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Quality) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
+                    return StatusCode(BiometricResponseCode.ServiceUnavailable, new QualityResponse
+                    {
+                        Code = BiometricResponseCode.ServiceUnavailable,
+                        ErrorMessage = grpcResponse.Em
+                    });
+                }
+
+                var modalityResult = grpcResponse.Results.FirstOrDefault();
+                if (modalityResult == null || modalityResult.Ec != 0 || modalityResult.Faces.Count == 0)
+                {
+                    _logger.LogError("BioAnalyze (Quality) returned no usable face result (modality ec={Ec})", modalityResult?.Ec);
+                    return StatusCode(BiometricResponseCode.ServiceUnavailable, new QualityResponse
+                    {
+                        Code = BiometricResponseCode.ServiceUnavailable,
+                        ErrorMessage = "Face quality could not be determined."
+                    });
+                }
+
+                var faceResult = modalityResult.Faces[0];
+                var face = new FaceDetect { Quality = faceResult.Quality };
+                return Ok(face);
             }
             catch (RpcException ex)
             {
-                _logger.LogError(ex, "gRPC Match (Quality) call failed");
-                response.Code = 500;
-                response.ErrorMessage = "Face quality service is unavailable.";
+                _logger.LogError(ex, "gRPC BioAnalyze (Quality) call failed");
+                return StatusCode(BiometricResponseCode.ServiceUnavailable, new QualityResponse
+                {
+                    Code = BiometricResponseCode.ServiceUnavailable,
+                    ErrorMessage = "Face quality service is unavailable."
+                });
             }
-            return response;
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Quality received invalid base64 data");
+                return StatusCode(BiometricResponseCode.BadRequest, new QualityResponse
+                {
+                    Code = BiometricResponseCode.BadRequest,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64
+                });
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogError(ex, "Quality received an unrecognized or malformed image");
+                return StatusCode(BiometricResponseCode.BadRequest, new QualityResponse
+                {
+                    Code = BiometricResponseCode.BadRequest,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage
+                    
+                });
+            }
         }
         #endregion
 
@@ -89,18 +182,111 @@ namespace MxfaceWebAPI.Controllers.V3
         [APIAuthorizationFilter]
         public async Task<ActionResult<FaceAnalyticsResponse>> Analytics([FromBody] DetectFace model)
         {
-            FaceAnalyticsResponse faceAnalyticsResponse = new FaceAnalyticsResponse
+            FaceAnalyticsResponse faceAnalyticsResponse = new FaceAnalyticsResponse();
+
+            if (model == null || string.IsNullOrWhiteSpace(model.encoded_image))
             {
-                ErrorCode = BiometricResponseCode.NotImplemented,
-                ErrorMessage = "Face analytics is not yet available; the ABIS master gRPC support for it is under development."
-            };
+                faceAnalyticsResponse.ErrorCode = 400;
+                faceAnalyticsResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
+                return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
+            }
+
+            try
+            {
+                // Same BioAnalyze RPC as Quality/Liveness, requesting Detect (+ Landmark for
+                // eye/nose/mouth points, + Crop only when the caller asked for a cropped face).
+                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.encoded_image);
+                var imageBytes = Convert.FromBase64String(model.encoded_image);
+
+                var analyzeImage = new AnalyzeImage
+                {
+                    Data = ByteString.CopyFrom(imageBytes),
+                    Format = MapBioFormatCode(format),
+                    Position = FacePosition,
+                    Width = width ?? 0,
+                    Height = height ?? 0
+                };
+
+                var bioAnalyzeRequest = new BioAnalyzeRequest
+                {
+                    SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
+                    ReqId = Guid.NewGuid().ToString(),
+                    Modalities =
+                    {
+                        new ModalityInput
+                        {
+                            Modality = FaceModality,
+                            Images = { analyzeImage },
+                            Features = new FeatureFlags { Detect = true, Landmark = true, Crop = model.GetCroppedFace, Quality = true, Gender = true, Age = true, Emotion = true }
+                        }
+                    }
+                };
+
+                var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+
+                if (grpcResponse.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Analytics) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
+                    faceAnalyticsResponse.ErrorCode = 500;
+                    faceAnalyticsResponse.ErrorMessage = grpcResponse.Em;
+                    return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
+                }
+
+                var modalityResult = grpcResponse.Results.FirstOrDefault();
+                if (modalityResult == null || modalityResult.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Analytics) returned a modality-level error (ec={Ec})", modalityResult?.Ec);
+                    faceAnalyticsResponse.ErrorCode = 500;
+                    faceAnalyticsResponse.ErrorMessage = "Face analytics could not be determined.";
+                    return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
+                }
+
+                // No face found is a valid empty result for a detection endpoint, not an error.
+                faceAnalyticsResponse.Faces = modalityResult.Faces.Select(f => new Analytics
+                {
+                    Quality = f.Quality,
+                    // f.Rect is a protobuf message-type field — null when the master doesn't
+                    // populate it (e.g. a degenerate/non-real-face image), not just a default struct.
+                    FaceRectangle = f.Rect == null ? null : new FaceRectangle { x = f.Rect.X, y = f.Rect.Y, width = f.Rect.W, height = f.Rect.H },
+                    Points = f.Landmarks.Select(l => new Points { X = l.X, Y = l.Y }).ToList(),
+                    croppedFace = model.GetCroppedFace && f.CroppedFace.Length > 0
+                        ? Convert.ToBase64String(f.CroppedFace.ToByteArray())
+                        : null,
+                    FaceAnalytics = new FaceAnalytics
+                    {
+                        EstimatedAge = f.Age >= 0 ? f.Age.ToString() : null,
+                        Gender = string.IsNullOrEmpty(f.Gender) ? null : f.Gender,
+                        Emotion = string.IsNullOrEmpty(f.Emotion) ? null : f.Emotion,
+                        Confidence = f.GenderConfidence
+                    }
+                }).ToList();
+                faceAnalyticsResponse.Code = 200;
+            }
+            catch (RpcException ex)
+            {
+                _logger.LogError(ex, "gRPC BioAnalyze (Analytics) call failed");
+                faceAnalyticsResponse.ErrorCode = 500;
+                faceAnalyticsResponse.ErrorMessage = "Face analytics service is unavailable.";
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Analytics received invalid base64 data");
+                faceAnalyticsResponse.ErrorCode = 400;
+                faceAnalyticsResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64;
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogError(ex, "Analytics received an unrecognized or malformed image");
+                faceAnalyticsResponse.ErrorCode = 400;
+                faceAnalyticsResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage;
+            }
             return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
         }
 
         #region Face API Emotion
 
         /// <summary>
-        /// get Analytics (face rectangle, eyes location, mouth location)
+        /// get emotion detected for the face(s) in the image
         /// </summary>
         /// <param name="model"></param>
         /// <returns></returns>
@@ -110,12 +296,96 @@ namespace MxfaceWebAPI.Controllers.V3
         [APIAuthorizationFilter]
         public async Task<ActionResult<FaceAnalyticsResponse>> Emotion([FromBody] DetectFace model)
         {
-            FaceAnalyticsResponse faceAnalyticsResponse = new FaceAnalyticsResponse
-            {
-                ErrorCode = BiometricResponseCode.NotImplemented,
-                ErrorMessage = "Face emotion detection is not yet available; the ABIS master gRPC support for it is under development."
-            };
+            FaceAnalyticsResponse faceAnalyticsResponse = new FaceAnalyticsResponse();
 
+            if (model == null || string.IsNullOrWhiteSpace(model.encoded_image))
+            {
+                faceAnalyticsResponse.ErrorCode = 400;
+                faceAnalyticsResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
+                return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
+            }
+
+            try
+            {
+                // Same BioAnalyze RPC as Quality/Liveness/Analytics, requesting only Detect (to
+                // localize the face) + Emotion.
+                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.encoded_image);
+                var imageBytes = Convert.FromBase64String(model.encoded_image);
+
+                var analyzeImage = new AnalyzeImage
+                {
+                    Data = ByteString.CopyFrom(imageBytes),
+                    Format = MapBioFormatCode(format),
+                    Position = FacePosition,
+                    Width = width ?? 0,
+                    Height = height ?? 0
+                };
+
+                var bioAnalyzeRequest = new BioAnalyzeRequest
+                {
+                    SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
+                    ReqId = Guid.NewGuid().ToString(),
+                    Modalities =
+                    {
+                        new ModalityInput
+                        {
+                            Modality = FaceModality,
+                            Images = { analyzeImage },
+                            Features = new FeatureFlags { Detect = true, Emotion = true }
+                        }
+                    }
+                };
+
+                var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+
+                if (grpcResponse.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Emotion) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
+                    faceAnalyticsResponse.ErrorCode = 500;
+                    faceAnalyticsResponse.ErrorMessage = grpcResponse.Em;
+                    return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
+                }
+
+                var modalityResult = grpcResponse.Results.FirstOrDefault();
+                if (modalityResult == null || modalityResult.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Emotion) returned a modality-level error (ec={Ec})", modalityResult?.Ec);
+                    faceAnalyticsResponse.ErrorCode = 500;
+                    faceAnalyticsResponse.ErrorMessage = "Face emotion could not be determined.";
+                    return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
+                }
+
+                // No face found is a valid empty result for a detection endpoint, not an error.
+                // f.Rect is a protobuf message-type field — null when the master doesn't populate
+                // it (e.g. a degenerate/non-real-face image), not just a default struct.
+                faceAnalyticsResponse.Faces = modalityResult.Faces.Select(f => new Analytics
+                {
+                    FaceRectangle = f.Rect == null ? null : new FaceRectangle { x = f.Rect.X, y = f.Rect.Y, width = f.Rect.W, height = f.Rect.H },
+                    FaceAnalytics = new FaceAnalytics
+                    {
+                        Emotion = string.IsNullOrEmpty(f.Emotion) ? null : f.Emotion
+                    }
+                }).ToList();
+                faceAnalyticsResponse.Code = 200;
+            }
+            catch (RpcException ex)
+            {
+                _logger.LogError(ex, "gRPC BioAnalyze (Emotion) call failed");
+                faceAnalyticsResponse.ErrorCode = 500;
+                faceAnalyticsResponse.ErrorMessage = "Face emotion service is unavailable.";
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Emotion received invalid base64 data");
+                faceAnalyticsResponse.ErrorCode = 400;
+                faceAnalyticsResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64;
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogError(ex, "Emotion received an unrecognized or malformed image");
+                faceAnalyticsResponse.ErrorCode = 400;
+                faceAnalyticsResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage;
+            }
             return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
         }
         #endregion Face API Emotion
@@ -134,12 +404,89 @@ namespace MxfaceWebAPI.Controllers.V3
         [APIAuthorizationFilter]
         public async Task<ActionResult<FaceDetectResponse>> Detect([FromBody] DetectFace model)
         {
-            FaceDetectResponse faceDetectResponse = new FaceDetectResponse();
-
             // FaceDetectResponse doesn't inherit BiomatricBaseResponse (no ErrorCode field), so
-            // ReturnResponse can't key off it here — return the not-implemented status directly.
-            return await Task.FromResult<ActionResult<FaceDetectResponse>>(
-                StatusCode(BiometricResponseCode.NotImplemented, faceDetectResponse)).ConfigureAwait(true);
+            // errors use the project's generic ApiErrorResponse{Code,Error} instead of ReturnResponse.
+            if (model == null || string.IsNullOrWhiteSpace(model.encoded_image))
+            {
+                return StatusCode(400, new ApiErrorResponse { Code = 400, Error = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest });
+            }
+
+            try
+            {
+                // Same BioAnalyze RPC as Quality/Liveness/Analytics/Emotion, requesting Detect
+                // (+ Landmark for eye/nose/mouth points, + Crop only when asked) — no Quality/
+                // Gender/Age/Emotion, this endpoint has no FaceAnalytics slot to populate.
+                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.encoded_image);
+                var imageBytes = Convert.FromBase64String(model.encoded_image);
+
+                var analyzeImage = new AnalyzeImage
+                {
+                    Data = ByteString.CopyFrom(imageBytes),
+                    Format = MapBioFormatCode(format),
+                    Position = FacePosition,
+                    Width = width ?? 0,
+                    Height = height ?? 0
+                };
+
+                var bioAnalyzeRequest = new BioAnalyzeRequest
+                {
+                    SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
+                    ReqId = Guid.NewGuid().ToString(),
+                    Modalities =
+                    {
+                        new ModalityInput
+                        {
+                            Modality = FaceModality,
+                            Images = { analyzeImage },
+                            Features = new FeatureFlags { Detect = true, Landmark = true, Crop = model.GetCroppedFace }
+                        }
+                    }
+                };
+
+                var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+
+                if (grpcResponse.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Detect) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
+                    return StatusCode(500, new ApiErrorResponse { Code = 500, Error = grpcResponse.Em });
+                }
+
+                var modalityResult = grpcResponse.Results.FirstOrDefault();
+                if (modalityResult == null || modalityResult.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Detect) returned a modality-level error (ec={Ec})", modalityResult?.Ec);
+                    return StatusCode(500, new ApiErrorResponse { Code = 500, Error = "Face detection could not be determined." });
+                }
+
+                // No face found is a valid empty result for a detection endpoint, not an error.
+                var faceDetectResponse = new FaceDetectResponse
+                {
+                    Faces = modalityResult.Faces.Select(f => new FaceDetect
+                    {
+                        FaceRectangle = f.Rect == null ? null : new FaceRectangle { x = f.Rect.X, y = f.Rect.Y, width = f.Rect.W, height = f.Rect.H },
+                        Points = f.Landmarks.Select(l => new Points { X = l.X, Y = l.Y }).ToList(),
+                        croppedFace = model.GetCroppedFace && f.CroppedFace.Length > 0
+                            ? Convert.ToBase64String(f.CroppedFace.ToByteArray())
+                            : null
+                    }).ToList()
+                };
+                return Ok(faceDetectResponse);
+            }
+            catch (RpcException ex)
+            {
+                _logger.LogError(ex, "gRPC BioAnalyze (Detect) call failed");
+                return StatusCode(500, new ApiErrorResponse { Code = 500, Error = "Face detection service is unavailable." });
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Detect received invalid base64 data");
+                return StatusCode(400, new ApiErrorResponse { Code = 400, Error = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64 });
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogError(ex, "Detect received an unrecognized or malformed image");
+                return StatusCode(400, new ApiErrorResponse { Code = 400, Error = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage });
+            }
         }
         #endregion
 
@@ -516,44 +863,92 @@ namespace MxfaceWebAPI.Controllers.V3
             MxfaceWebAPI.Models.LivenessResponse response = new MxfaceWebAPI.Models.LivenessResponse();
             if (!_IsEnabledPassiveLiveness)
             {
-                response.ErrorCode = 403;
-                response.ErrorMessage = "Liveness API currently not available.";
-                return await ReturnResponse(response).ConfigureAwait(true);
+                return StatusCode(403, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(403, "Liveness API currently not available."));
             }
+
+            if (model == null || string.IsNullOrWhiteSpace(model.encoded_image))
+            {
+                return StatusCode(400, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(400, global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest));
+            }
+
             try
             {
-                if (model == null || (model != null && string.IsNullOrWhiteSpace(model.encoded_image)))
+                // Same BioAnalyze RPC as Quality (see that action's comment for why — it's a
+                // directly-typed RPC, not the generic ClientApiRequest envelope), with
+                // FeatureFlags.Liveness instead of Quality.
+                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.encoded_image);
+                var imageBytes = Convert.FromBase64String(model.encoded_image);
+
+                var analyzeImage = new AnalyzeImage
                 {
-                    response.ErrorCode = 400;
-                    response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
-                }
-                else if (model.encoded_image != null && model.encoded_image.Length > 0)
+                    Data = ByteString.CopyFrom(imageBytes),
+                    Format = MapBioFormatCode(format),
+                    Position = FacePosition,
+                    Width = width ?? 0,
+                    Height = height ?? 0
+                };
+
+                var bioAnalyzeRequest = new BioAnalyzeRequest
                 {
-                    //response = NeuroBiometric.NeuroDetectLivenessAsync(model.encoded_image);
-                    response = null;
+                    SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
+                    ReqId = Guid.NewGuid().ToString(),
+                    Modalities =
+                    {
+                        new ModalityInput
+                        {
+                            Modality = FaceModality,
+                            Images = { analyzeImage },
+                            Features = new FeatureFlags { Liveness = true }
+                        }
+                    }
+                };
+
+                var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+
+                if (grpcResponse.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Liveness) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
+                    return StatusCode(500, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(500, grpcResponse.Em));
                 }
+
+                var modalityResult = grpcResponse.Results.FirstOrDefault();
+                if (modalityResult == null || modalityResult.Ec != 0 || modalityResult.Faces.Count == 0)
+                {
+                    _logger.LogError("BioAnalyze (Liveness) returned no usable face result (modality ec={Ec})", modalityResult?.Ec);
+                    return StatusCode(500, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(500, "Face liveness could not be determined."));
+                }
+
+                var faceResult = modalityResult.Faces[0];
+
+                if (faceResult.Liveness == null)
+                {
+                    _logger.LogError("BioAnalyze (Liveness) returned a face with no Liveness result populated");
+                    return StatusCode(500, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(500, "Face liveness could not be determined."));
+                }
+
+                // TODO: ALiveness.Score (extract.proto) is an unscaled int32 — its 0-100 vs 0-1
+                // convention isn't documented anywhere in the proto. Assuming 0-100 (dividing by
+                // 100 to produce a 0-1 LivenessScore, e.g. a raw score of 94 -> 0.94) until
+                // confirmed with the ABIS/master team — same flagged-placeholder treatment as
+                // BioFormat/BioPosition above (see CLAUDE.md "Known placeholder/unconfirmed values").
+                response.LivenessScore = faceResult.Liveness.Score / 100f;
             }
-            catch (Exception ex)
+            catch (RpcException ex)
             {
-                if (ex.Message.Contains("The input is not a valid Base-64 string") || ex.Message.Contains("NStream read failed"))
-                {
-                    response.ErrorCode = 400;
-                    response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64;
-                }
-                else if (ex.Message.Contains("Image cannot be loaded") || ex.Message.Contains("No image format found that supports the specified stream"))
-                {
-                    response.ErrorCode = 400;
-                    response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage;
-                }
-                else
-                {
-                    _logger.LogError(ex, "Liveness V3");
-                    //await _emailService.ExceptionMailSend("V3 Liveness", ex).ConfigureAwait(true);
-                    response.ErrorCode = 500;
-                    response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.GeneralErrorMessage;
-                }
+                _logger.LogError(ex, "gRPC BioAnalyze (Liveness) call failed");
+                return StatusCode(500, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(500, "Face liveness service is unavailable."));
             }
-            return await ReturnResponse(response).ConfigureAwait(true);
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Liveness received invalid base64 data");
+                return StatusCode(400, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(400, global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64));
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogError(ex, "Liveness received an unrecognized or malformed image");
+                return StatusCode(400, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(400, global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage));
+            }
+            return Ok(response);
         }
 
 

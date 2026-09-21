@@ -6,6 +6,7 @@ using MxfaceWebAPI.Filters;
 using MxfaceWebAPI.Grpc;
 using MxfaceWebAPI.Grpc.AbisClient;
 using MxfaceWebAPI.Models;
+using MxfaceWebAPI.Services;
 
 namespace MxfaceWebAPI.Controllers
 {
@@ -35,6 +36,7 @@ namespace MxfaceWebAPI.Controllers
         private const string InvalidRequestMessage = "Invalid request. Please pass valid json with all required parameters.";
 
         private readonly ClientApiService.ClientApiServiceClient _clientApiClient;
+        private readonly IEmailService _emailService;
 
 
 
@@ -44,10 +46,12 @@ namespace MxfaceWebAPI.Controllers
             IClientApiEnvelopeFactory envelopeFactory,
             IConfiguration configuration,
             IPostgresHelper postgresHelper,
-            ILogger<IrisController> logger)
+            ILogger<IrisController> logger,
+            IEmailService emailService)
             : base(envelopeFactory, configuration, postgresHelper, logger)
         {
             _clientApiClient = clientApiClient;
+            _emailService = emailService;
         }
         #endregion
 
@@ -61,7 +65,7 @@ namespace MxfaceWebAPI.Controllers
         [APIAuthorizationFilter]
         [Route("Verify", Name = "VerifyIris")]
         [HttpPost]
-        public Task<VerifyIrisResponse> Verify([FromBody] VerifyIrisRequest request)
+        public async Task<VerifyIrisResponse> Verify([FromBody] VerifyIrisRequest request)
         {
             VerifyIrisResponse response = new VerifyIrisResponse();
 
@@ -70,7 +74,7 @@ namespace MxfaceWebAPI.Controllers
                 response.ErrorMessage = InvalidRequestMessage;
                 response.Code = BiometricResponseCode.BadRequest;
                 Response.StatusCode = BiometricResponseCode.BadRequest;
-                return Task.FromResult(response);
+                return response;
             }
 
             try
@@ -101,7 +105,7 @@ namespace MxfaceWebAPI.Controllers
                     }
                 };
 
-                return CallAsync<VerifyIrisResponse>(
+                return await CallAsync<VerifyIrisResponse>(
                     VerifyMode, masterPayload, (r, o) => _clientApiClient.MatchAsync(r, o).ResponseAsync, nameof(Verify),
                     BiometricFeatureType.IrisVerify);
             }
@@ -109,31 +113,33 @@ namespace MxfaceWebAPI.Controllers
             {
                 _logger.LogError(ex, "{Operation} received invalid base64 data", nameof(Verify));
                 Response.StatusCode = BiometricResponseCode.BadRequest;
-                return Task.FromResult(new VerifyIrisResponse
+                return new VerifyIrisResponse
                 {
                     Code = BiometricResponseCode.BadRequest,
                     Message = "The input is not a valid Base-64 string."
-                });
+                };
             }
             catch (InvalidDataException ex)
             {
                 _logger.LogError(ex, "{Operation} received a non-BMP or malformed image", nameof(Verify));
+                await _emailService.ExceptionMailSend(nameof(Verify), ex).ConfigureAwait(true);
                 Response.StatusCode = BiometricResponseCode.BadRequest;
-                return Task.FromResult(new VerifyIrisResponse
+                return new VerifyIrisResponse
                 {
                     Code = BiometricResponseCode.BadRequest,
                     Message = "Not valid biometric data or invalid format."
-                });
+                };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "{Operation} failed unexpectedly", nameof(Verify));
+                await _emailService.ExceptionMailSend(nameof(Verify), ex).ConfigureAwait(true);
                 Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
-                return Task.FromResult(new VerifyIrisResponse
+                return new VerifyIrisResponse
                 {
                     Code = BiometricResponseCode.ServiceUnavailable,
                     ErrorMessage = "Something went wrong, please try again later"
-                });
+                };
             }
         }
         #endregion
@@ -148,7 +154,7 @@ namespace MxfaceWebAPI.Controllers
         [HttpPost]
         [ApiExplorerSettings(GroupName = "BiometricAPI")]
         [Route("Enroll", Name = "EnrollIris")]
-        public Task<BiometricEnrollResponse> Enroll([FromBody] IrisEnrollRequest request)
+        public async Task<BiometricEnrollResponse> Enroll([FromBody] IrisEnrollRequest request)
         {
             BiometricEnrollResponse response = new BiometricEnrollResponse();
             try
@@ -159,7 +165,7 @@ namespace MxfaceWebAPI.Controllers
                     response.ErrorMessage = InvalidRequestMessage;
                     response.Code = BiometricResponseCode.BadRequest;
                     Response.StatusCode = BiometricResponseCode.BadRequest;
-                    return Task.FromResult(response);
+                    return response;
                 }
 
                 // The master's real Enroll schema has no identity field of its own — it echoes
@@ -179,7 +185,7 @@ namespace MxfaceWebAPI.Controllers
                     }
                 };
 
-                return CallAsync<BiometricEnrollResponse>(
+                return await CallAsync<BiometricEnrollResponse>(
                     EnrollMode, masterPayload, (r, o) => _clientApiClient.EnrolAsync(r, o).ResponseAsync, nameof(Enroll),
                     BiometricFeatureType.IrisEnroll,
                     // referenceId already has an identity (e.g. Face enrolled first for the same
@@ -193,31 +199,32 @@ namespace MxfaceWebAPI.Controllers
             {
                 _logger.LogError(ex, "{Operation} received invalid base64 data", nameof(Enroll));
                 Response.StatusCode = BiometricResponseCode.BadRequest;
-                return Task.FromResult(new BiometricEnrollResponse
+                return new BiometricEnrollResponse
                 {
                     Code = BiometricResponseCode.BadRequest,
                     Message = "The input is not a valid Base-64 string."
-                });
+                };
             }
             catch (InvalidDataException ex)
             {
                 _logger.LogError(ex, "{Operation} received a non-BMP or malformed image", nameof(Enroll));
                 Response.StatusCode = BiometricResponseCode.BadRequest;
-                return Task.FromResult(new BiometricEnrollResponse
+                return new BiometricEnrollResponse
                 {
                     Code = BiometricResponseCode.BadRequest,
                     Message = "Not valid biometric data or invalid format."
-                });
+                };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "{Operation} failed unexpectedly", nameof(Enroll));
+                await _emailService.ExceptionMailSend(nameof(Enroll), ex).ConfigureAwait(true);
                 Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
-                return Task.FromResult(new BiometricEnrollResponse
+                return new BiometricEnrollResponse
                 {
                     Code = BiometricResponseCode.ServiceUnavailable,
                     ErrorMessage = "Something went wrong, please try again later"
-                });
+                };
             }
         }
         #endregion
@@ -232,7 +239,7 @@ namespace MxfaceWebAPI.Controllers
         [HttpPost]
         [ApiExplorerSettings(GroupName = "BiometricAPI")]
         [Route("Search", Name = "SearchIris")]
-        public Task<BiometricSearchResponse> Search([FromBody] IrisSearchRequest request)
+        public async Task<BiometricSearchResponse> Search([FromBody] IrisSearchRequest request)
         {
             BiometricSearchResponse response = new BiometricSearchResponse();
 
@@ -241,7 +248,7 @@ namespace MxfaceWebAPI.Controllers
                 response.ErrorMessage = InvalidRequestMessage;
                 response.Code = BiometricResponseCode.BadRequest;
                 Response.StatusCode = BiometricResponseCode.BadRequest;
-                return Task.FromResult(response);
+                return response;
             }
 
             try
@@ -259,7 +266,7 @@ namespace MxfaceWebAPI.Controllers
                     }
                 };
 
-                return CallAsync<BiometricSearchResponse>(
+                return await CallAsync<BiometricSearchResponse>(
                     SearchMode, masterPayload, (r, o) => _clientApiClient.IdentifyAsync(r, o).ResponseAsync, nameof(Search),
                     BiometricFeatureType.IrisSearch);
             }
@@ -267,31 +274,32 @@ namespace MxfaceWebAPI.Controllers
             {
                 _logger.LogError(ex, "{Operation} received invalid base64 data", nameof(Search));
                 Response.StatusCode = BiometricResponseCode.BadRequest;
-                return Task.FromResult(new BiometricSearchResponse
+                return new BiometricSearchResponse
                 {
                     Code = BiometricResponseCode.BadRequest,
                     Message = "The input is not a valid Base-64 string."
-                });
+                };
             }
             catch (InvalidDataException ex)
             {
                 _logger.LogError(ex, "{Operation} received a non-BMP or malformed image", nameof(Search));
                 Response.StatusCode = BiometricResponseCode.BadRequest;
-                return Task.FromResult(new BiometricSearchResponse
+                return new BiometricSearchResponse
                 {
                     Code = BiometricResponseCode.BadRequest,
                     Message = "Not valid biometric data or invalid format."
-                });
+                };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "{Operation} failed unexpectedly", nameof(Search));
+                await _emailService.ExceptionMailSend(nameof(Search), ex).ConfigureAwait(true);
                 Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
-                return Task.FromResult(new BiometricSearchResponse
+                return new BiometricSearchResponse
                 {
                     Code = BiometricResponseCode.ServiceUnavailable,
                     ErrorMessage = "Something went wrong, please try again later"
-                });
+                };
             }
         }
         #endregion
@@ -306,7 +314,7 @@ namespace MxfaceWebAPI.Controllers
         [HttpPost]
         [ApiExplorerSettings(GroupName = "BiometricAPI")]
         [Route("Delete", Name = "DeleteIris")]
-        public Task<BiomatricBaseResponse> Delete([FromBody] IrisDeleteRequest request)
+        public async Task<BiomatricBaseResponse> Delete([FromBody] IrisDeleteRequest request)
         {
             BiomatricBaseResponse response = new BiomatricBaseResponse();
 
@@ -315,7 +323,7 @@ namespace MxfaceWebAPI.Controllers
                 response.ErrorMessage = InvalidRequestMessage;
                 response.Code = BiometricResponseCode.BadRequest;
                 Response.StatusCode = BiometricResponseCode.BadRequest;
-                return Task.FromResult(response);
+                return response;
             }
 
             try
@@ -326,19 +334,20 @@ namespace MxfaceWebAPI.Controllers
                     ReferenceIds = new List<string> { request.ExternalId }
                 };
 
-                return CallAsync<BiomatricBaseResponse>(
+                return await CallAsync<BiomatricBaseResponse>(
                     DeleteMode, masterPayload, (r, o) => _clientApiClient.DeleteAsync(r, o).ResponseAsync, nameof(Delete),
                     BiometricFeatureType.IrisDelete);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "{Operation} failed unexpectedly", nameof(Delete));
+                await _emailService.ExceptionMailSend(nameof(Delete), ex).ConfigureAwait(true);
                 Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
-                return Task.FromResult(new BiomatricBaseResponse
+                return new BiomatricBaseResponse
                 {
                     Code = BiometricResponseCode.ServiceUnavailable,
                     ErrorMessage = "Something went wrong, please try again later"
-                });
+                };
             }
         }
         #endregion

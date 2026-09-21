@@ -1,8 +1,10 @@
 namespace MxfaceWebAPI.Models.Request.Group
 {
-    // Placeholder shape based on the ABIS Admin API guide's group PUT payload (groupName
-    // mandatory, description/isDefault the only editable fields) — the real Group API isn't
-    // implemented yet, this just unblocks the build for GroupController's stubbed actions.
+    // Reused for both Create and Update. groupName: required, max 30 characters, letters/digits/
+    // spaces/\_[]()- only (see GroupService's validation) — set once at creation, never changed
+    // afterward (confirmed with the ABIS API team: groupName can't be renamed at all, only
+    // description/isDefault are updatable). Description/IsDefault are optional on both Create and
+    // Update.
     public class CreateGroupRequest
     {
         public string GroupName { get; set; } = string.Empty;

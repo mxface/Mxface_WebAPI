@@ -55,6 +55,17 @@ namespace MxfaceWebAPI.Controllers.V3
         private readonly IEmailService _emailService;
         private readonly IConfiguration _config;
 
+        // Resolved by APIAuthorizationFilterAttribute and stashed in HttpContext.Items — same
+        // pattern as BiometricControllerBase.ResolvedClientId, kept local here since this
+        // controller doesn't inherit that base.
+        private long? ResolvedClientId =>
+            HttpContext.Items.TryGetValue("ClientId", out var value) && value is long clientId ? clientId : null;
+
+        // Also resolved by APIAuthorizationFilterAttribute and stashed alongside ClientId — used
+        // to build the ABIS admin/clients URL in GroupService's calls to IAbisAdminApiClient.
+        private string? ResolvedClientCode =>
+            HttpContext.Items.TryGetValue("ClientCode", out var value) && value is string clientCode ? clientCode : null;
+
         #region For Refrence Call
         public FaceIdentityController(ClientApiService.ClientApiServiceClient clientApiClient, IClientApiEnvelopeFactory envelopeFactory,
                                        IConfiguration configuration, IPostgresHelper postgresHelper, ILogger<FaceIdentityController> logger,
@@ -81,7 +92,6 @@ namespace MxfaceWebAPI.Controllers.V3
         public async Task<FaceIdentityInfo> Enroll([FromBody] Models.Request.FaceIdentity.CreateFaceIdentityRequest model)
         {
             var response = new FaceIdentityInfo();
-            bool isValid = true;
             float Quality = float.Parse(_config["FaceIdentityQuality"]); // MXface Defined quality
             int MatchedConfidence = string.IsNullOrEmpty(_config["MatchedConfidence"]) ? 60 : Int32.Parse(_config["MatchedConfidence"]);
 
@@ -120,75 +130,81 @@ namespace MxfaceWebAPI.Controllers.V3
                 Response.StatusCode = BiometricResponseCode.BadRequest;
                 return response;
             }
-
             try
             {
-                // Multi-group Enroll is out of scope for this pass — only the first GroupId is
-                // sent as the master's single groupName, matching Finger/Iris's groupName:string
-                // convention until a real multi-group schema is confirmed.
-                // Face images commonly arrive as JPEG/PNG, not just BMP like Finger/Iris test
-                // captures — detect the real format instead of assuming BMP.
-                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.Encoded_Image);
-                var groupName = model.GroupIds.First().ToString();
-                var bioDataEntry = new BioData { Format = format, Version = ImageBioDataVersion, Wd = width, Ht = height, Data = model.Encoded_Image };
-
-                int clientId = GetClientID();
-                // Reference D:\LiveBranchDeployment\webapi.face FaceIdentityController.cs lines
-                // 192-250: before enrolling, search the target group for a similar existing
-                // identity — reject unless the caller explicitly opts in via ForceAdd.
-
-                if (!model.ForceAdd)
                 {
-                    var searchPayload = new FaceSearchMasterPayload
+                    var clientId = ResolvedClientId!.Value;
+                    //int clientId = GetClientID();
+
+                    // Multi-group Enroll is out of scope for this pass — only the first GroupId is
+                    // sent as the master's single groupName, matching Finger/Iris's groupName:string
+                    // convention until a real multi-group schema is confirmed.
+                    // Face images commonly arrive as JPEG/PNG, not just BMP like Finger/Iris test
+                    // captures — detect the real format instead of assuming BMP.
+
+                    var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.Encoded_Image);
+                    var groupName = model.GroupIds.First().ToString();
+                    var bioDataEntry = new BioData { Format = format, Version = ImageBioDataVersion, Wd = width, Ht = height, Data = model.Encoded_Image };
+
+                   
+                    // Reference D:\LiveBranchDeployment\webapi.face FaceIdentityController.cs lines
+                    // 192-250: before enrolling, search the target group for a similar existing
+                    // identity — reject unless the caller explicitly opts in via ForceAdd.
+
+                    if (!model.ForceAdd)
+                    {
+                        var searchPayload = new FaceSearchMasterPayload
+                        {
+                            GroupName = groupName,
+                            Faces = new FingerprintsPayload { BioData = new List<BioData> { bioDataEntry } }
+                        };
+
+                        var searchResult = await CallAsync<BiometricSearchResponse>(
+                            SearchMode, searchPayload, (r, o) => _clientApiClient.IdentifyAsync(r, o).ResponseAsync, nameof(Enroll) + "->Search",
+                            BiometricFeatureType.FaceEnroll);
+
+                        // MatchResult is only null when the search call itself failed (technical/master
+                        // rejection) — CallAsync's success path always sets it to a (possibly empty)
+                        // list. Don't silently fall through to Enroll on a failed pre-check; surface it.
+                        if (searchResult.MatchResult == null)
+                        {
+                            return new FaceIdentityInfo
+                            {
+                                Code = searchResult.Code,
+                                Message = searchResult.Message,
+                                ErrorMessage = searchResult.ErrorMessage
+                            };
+                        }
+
+                        if (searchResult.MatchResult.Any(m => m.MatchingScore.HasValue && m.MatchingScore.Value > DuplicateMatchThreshold))
+                        {
+                            _logger.LogInformation("{Operation}: rejecting enroll, a similar identity already exists (ForceAdd=false)", nameof(Enroll));
+                            Response.StatusCode = BiometricResponseCode.BadRequest;
+                            return new FaceIdentityInfo
+                            {
+                                Code = BiometricResponseCode.BadRequest,
+                                ErrorMessage = "Identity is similar to an existing identities."
+                            };
+                        }
+                    }
+
+
+                    var masterPayload = new FaceEnrollMasterPayload
                     {
                         GroupName = groupName,
+                        Demographics = new DemographicsPayload { ReferenceId = model.externalId },
                         Faces = new FingerprintsPayload { BioData = new List<BioData> { bioDataEntry } }
                     };
 
-                    var searchResult = await CallAsync<BiometricSearchResponse>(
-                        SearchMode, searchPayload, (r, o) => _clientApiClient.IdentifyAsync(r, o).ResponseAsync, nameof(Enroll) + "->Search",
-                        BiometricFeatureType.FaceEnroll);
-
-                    // MatchResult is only null when the search call itself failed (technical/master
-                    // rejection) — CallAsync's success path always sets it to a (possibly empty)
-                    // list. Don't silently fall through to Enroll on a failed pre-check; surface it.
-                    if (searchResult.MatchResult == null)
-                    {
-                        return new FaceIdentityInfo
-                        {
-                            Code = searchResult.Code,
-                            Message = searchResult.Message,
-                            ErrorMessage = searchResult.ErrorMessage
-                        };
-                    }
-
-                    if (searchResult.MatchResult.Any(m => m.MatchingScore.HasValue && m.MatchingScore.Value > DuplicateMatchThreshold))
-                    {
-                        _logger.LogInformation("{Operation}: rejecting enroll, a similar identity already exists (ForceAdd=false)", nameof(Enroll));
-                        Response.StatusCode = BiometricResponseCode.BadRequest;
-                        return new FaceIdentityInfo
-                        {
-                            Code = BiometricResponseCode.BadRequest,
-                            ErrorMessage = "Identity is similar to an existing identities."
-                        };
-                    }
+                    return await CallAsync<FaceIdentityInfo>(
+                        EnrollMode, masterPayload, (r, o) => _clientApiClient.EnrolAsync(r, o).ResponseAsync, nameof(Enroll),
+                        BiometricFeatureType.FaceEnroll,
+                        // referenceId already has an identity (e.g. enrolled via a different modality
+                        // first) — retry via Update instead of surfacing the rejection, same as
+                        // FingerPrint/Iris Enroll.
+                        shouldRetryWithFallback: MasterErrorMapper.IsAlreadyEnrolledError,
+                        fallbackGrpcCall: (r, o) => _clientApiClient.UpdateAsync(r, o).ResponseAsync);
                 }
-
-                var masterPayload = new FaceEnrollMasterPayload
-                {
-                    GroupName = groupName,
-                    Demographics = new DemographicsPayload { ReferenceId = model.externalId },
-                    Faces = new FingerprintsPayload { BioData = new List<BioData> { bioDataEntry } }
-                };
-
-                return await CallAsync<FaceIdentityInfo>(
-                    EnrollMode, masterPayload, (r, o) => _clientApiClient.EnrolAsync(r, o).ResponseAsync, nameof(Enroll),
-                    BiometricFeatureType.FaceEnroll,
-                    // referenceId already has an identity (e.g. enrolled via a different modality
-                    // first) — retry via Update instead of surfacing the rejection, same as
-                    // FingerPrint/Iris Enroll.
-                    shouldRetryWithFallback: MasterErrorMapper.IsAlreadyEnrolledError,
-                    fallbackGrpcCall: (r, o) => _clientApiClient.UpdateAsync(r, o).ResponseAsync);
             }
             catch (FormatException ex)
             {

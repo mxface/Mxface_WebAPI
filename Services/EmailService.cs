@@ -39,11 +39,11 @@ namespace MxfaceWebAPI.Services
 
                 var fromAddress = _configuration["ExceptionFromEmail:SmtpUsername"];
                 var toAddress = _configuration["ExceptionFromEmail:ToAddress"];
-                if (string.IsNullOrWhiteSpace(fromAddress) || string.IsNullOrWhiteSpace(toAddress))
-                {
-                    _logger.LogWarning("ExceptionMailSend skipped for {Operation} — ExceptionFromEmail config is incomplete", message);
-                    return;
-                }
+                //if (string.IsNullOrWhiteSpace(fromAddress) || string.IsNullOrWhiteSpace(toAddress))
+                //{
+                //    _logger.LogWarning("ExceptionMailSend skipped for {Operation} — ExceptionFromEmail config is incomplete", message);
+                //    return;
+                //}
 
                 mailMessage = new MailMessage
                 {
