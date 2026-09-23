@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using MxfaceWebAPI.Common;
+using MxfaceWebAPI.Data;
 using MxfaceWebAPI.Filters;
 using MxfaceWebAPI.Grpc.AbisClient;
 using MxfaceWebAPI.Grpc.Extract;
@@ -38,28 +39,28 @@ namespace MxfaceWebAPI.Controllers.V3
         private const int BioFormatPng = 2;
         private const int FacePosition = 0;
 
-        private static int MapBioFormatCode(string format) => format switch
-        {
-            "BMP" => BioFormatBmp,
-            "JPEG" => BioFormatJpeg,
-            "PNG" => BioFormatPng,
-            _ => throw new InvalidDataException($"Unsupported image format for BioAnalyze: {format}")
-        };
-
+       
         private readonly ClientApiService.ClientApiServiceClient _clientApiClient;
         private readonly IConfiguration _configuration;
-        private readonly ILogger<FaceController> _logger;        
+        private readonly ILogger<FaceController> _logger;
+        private readonly IPostgresHelper _postgresHelper;
         public static bool _IsEnabledPassiveLiveness = true;
 
         #region For Refrence Call
-        public FaceController(ClientApiService.ClientApiServiceClient clientApiClient, IConfiguration configuration, ILogger<FaceController> logger)
+        public FaceController(ClientApiService.ClientApiServiceClient clientApiClient, IConfiguration configuration, ILogger<FaceController> logger, IPostgresHelper postgresHelper)
         {
             _clientApiClient = clientApiClient;
             _configuration = configuration;
             _logger = logger;
+            _postgresHelper = postgresHelper;
         }
         #endregion
 
+        // Resolved by APIAuthorizationFilterAttribute and stashed in HttpContext.Items — same
+        // pattern as BiometricControllerBase.ResolvedClientId, duplicated here since this
+        // controller inherits ControllerBase directly, not BiometricControllerBase.
+        private long? ResolvedClientId =>
+            HttpContext.Items.TryGetValue("ClientId", out var value) && value is long clientId ? clientId : null;
 
         #region For QualityAPI Call
 
@@ -77,6 +78,14 @@ namespace MxfaceWebAPI.Controllers.V3
                     ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest
                 });
             }
+
+            // BioAnalyze-based actions call the RPC directly (not through
+            // BiometricControllerBase.CallAsync, since this controller doesn't derive from it), so
+            // they never hit the one place that writes faceclient_db.transactions — LogFaceTransactionAsync
+            // (below) reuses the same safe LogTransactionSafeAsync helper CallAsync itself uses.
+            var requestTimestamp = DateTime.UtcNow;
+            var reqId = Guid.NewGuid().ToString();
+            var requestPayloadJson = string.Empty;
 
             try
             {
@@ -101,7 +110,7 @@ namespace MxfaceWebAPI.Controllers.V3
                     // Forward the caller's own key (same header APIAuthorizationFilterAttribute
                     // reads) instead of a static config value — matches every other controller.
                     SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
-                    ReqId = Guid.NewGuid().ToString(),
+                    ReqId = reqId,
                     Modalities =
                     {
                         new ModalityInput
@@ -112,12 +121,15 @@ namespace MxfaceWebAPI.Controllers.V3
                         }
                     }
                 };
+                requestPayloadJson = JsonFormatter.Default.Format(bioAnalyzeRequest);
 
                 var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+                var responseJson = JsonFormatter.Default.Format(grpcResponse);
 
                 if (grpcResponse.Ec != 0)
                 {
                     _logger.LogError("BioAnalyze (Quality) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceQuality, reqId, requestTimestamp, requestPayloadJson, responseJson, grpcResponse.Ec.ToString(), "MASTER");
                     return StatusCode(BiometricResponseCode.ServiceUnavailable, new QualityResponse
                     {
                         Code = BiometricResponseCode.ServiceUnavailable,
@@ -129,6 +141,7 @@ namespace MxfaceWebAPI.Controllers.V3
                 if (modalityResult == null || modalityResult.Ec != 0 || modalityResult.Faces.Count == 0)
                 {
                     _logger.LogError("BioAnalyze (Quality) returned no usable face result (modality ec={Ec})", modalityResult?.Ec);
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceQuality, reqId, requestTimestamp, requestPayloadJson, responseJson, modalityResult?.Ec.ToString() ?? "MODALITY", "MASTER");
                     return StatusCode(BiometricResponseCode.ServiceUnavailable, new QualityResponse
                     {
                         Code = BiometricResponseCode.ServiceUnavailable,
@@ -138,11 +151,13 @@ namespace MxfaceWebAPI.Controllers.V3
 
                 var faceResult = modalityResult.Faces[0];
                 var face = new FaceDetect { Quality = faceResult.Quality };
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceQuality, reqId, requestTimestamp, requestPayloadJson, responseJson, string.Empty, string.Empty);
                 return Ok(face);
             }
             catch (RpcException ex)
             {
                 _logger.LogError(ex, "gRPC BioAnalyze (Quality) call failed");
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceQuality, reqId, requestTimestamp, requestPayloadJson, "{}", ex.StatusCode.ToString(), "GRPC");
                 return StatusCode(BiometricResponseCode.ServiceUnavailable, new QualityResponse
                 {
                     Code = BiometricResponseCode.ServiceUnavailable,
@@ -191,6 +206,10 @@ namespace MxfaceWebAPI.Controllers.V3
                 return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
             }
 
+            var requestTimestamp = DateTime.UtcNow;
+            var reqId = Guid.NewGuid().ToString();
+            var requestPayloadJson = string.Empty;
+
             try
             {
                 // Same BioAnalyze RPC as Quality/Liveness, requesting Detect (+ Landmark for
@@ -210,7 +229,7 @@ namespace MxfaceWebAPI.Controllers.V3
                 var bioAnalyzeRequest = new BioAnalyzeRequest
                 {
                     SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
-                    ReqId = Guid.NewGuid().ToString(),
+                    ReqId = reqId,
                     Modalities =
                     {
                         new ModalityInput
@@ -221,14 +240,17 @@ namespace MxfaceWebAPI.Controllers.V3
                         }
                     }
                 };
+                requestPayloadJson = JsonFormatter.Default.Format(bioAnalyzeRequest);
 
                 var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+                var responseJson = JsonFormatter.Default.Format(grpcResponse);
 
                 if (grpcResponse.Ec != 0)
                 {
                     _logger.LogError("BioAnalyze (Analytics) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
                     faceAnalyticsResponse.ErrorCode = 500;
                     faceAnalyticsResponse.ErrorMessage = grpcResponse.Em;
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceAnalytics, reqId, requestTimestamp, requestPayloadJson, responseJson, grpcResponse.Ec.ToString(), "MASTER");
                     return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
                 }
 
@@ -238,6 +260,7 @@ namespace MxfaceWebAPI.Controllers.V3
                     _logger.LogError("BioAnalyze (Analytics) returned a modality-level error (ec={Ec})", modalityResult?.Ec);
                     faceAnalyticsResponse.ErrorCode = 500;
                     faceAnalyticsResponse.ErrorMessage = "Face analytics could not be determined.";
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceAnalytics, reqId, requestTimestamp, requestPayloadJson, responseJson, modalityResult?.Ec.ToString() ?? "MODALITY", "MASTER");
                     return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
                 }
 
@@ -261,12 +284,14 @@ namespace MxfaceWebAPI.Controllers.V3
                     }
                 }).ToList();
                 faceAnalyticsResponse.Code = 200;
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceAnalytics, reqId, requestTimestamp, requestPayloadJson, responseJson, string.Empty, string.Empty);
             }
             catch (RpcException ex)
             {
                 _logger.LogError(ex, "gRPC BioAnalyze (Analytics) call failed");
                 faceAnalyticsResponse.ErrorCode = 500;
                 faceAnalyticsResponse.ErrorMessage = "Face analytics service is unavailable.";
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceAnalytics, reqId, requestTimestamp, requestPayloadJson, "{}", ex.StatusCode.ToString(), "GRPC");
             }
             catch (FormatException ex)
             {
@@ -305,6 +330,10 @@ namespace MxfaceWebAPI.Controllers.V3
                 return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
             }
 
+            var requestTimestamp = DateTime.UtcNow;
+            var reqId = Guid.NewGuid().ToString();
+            var requestPayloadJson = string.Empty;
+
             try
             {
                 // Same BioAnalyze RPC as Quality/Liveness/Analytics, requesting only Detect (to
@@ -324,7 +353,7 @@ namespace MxfaceWebAPI.Controllers.V3
                 var bioAnalyzeRequest = new BioAnalyzeRequest
                 {
                     SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
-                    ReqId = Guid.NewGuid().ToString(),
+                    ReqId = reqId,
                     Modalities =
                     {
                         new ModalityInput
@@ -335,14 +364,17 @@ namespace MxfaceWebAPI.Controllers.V3
                         }
                     }
                 };
+                requestPayloadJson = JsonFormatter.Default.Format(bioAnalyzeRequest);
 
                 var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+                var responseJson = JsonFormatter.Default.Format(grpcResponse);
 
                 if (grpcResponse.Ec != 0)
                 {
                     _logger.LogError("BioAnalyze (Emotion) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
                     faceAnalyticsResponse.ErrorCode = 500;
                     faceAnalyticsResponse.ErrorMessage = grpcResponse.Em;
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceEmotion, reqId, requestTimestamp, requestPayloadJson, responseJson, grpcResponse.Ec.ToString(), "MASTER");
                     return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
                 }
 
@@ -352,6 +384,7 @@ namespace MxfaceWebAPI.Controllers.V3
                     _logger.LogError("BioAnalyze (Emotion) returned a modality-level error (ec={Ec})", modalityResult?.Ec);
                     faceAnalyticsResponse.ErrorCode = 500;
                     faceAnalyticsResponse.ErrorMessage = "Face emotion could not be determined.";
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceEmotion, reqId, requestTimestamp, requestPayloadJson, responseJson, modalityResult?.Ec.ToString() ?? "MODALITY", "MASTER");
                     return await ReturnResponse(faceAnalyticsResponse).ConfigureAwait(true);
                 }
 
@@ -367,12 +400,14 @@ namespace MxfaceWebAPI.Controllers.V3
                     }
                 }).ToList();
                 faceAnalyticsResponse.Code = 200;
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceEmotion, reqId, requestTimestamp, requestPayloadJson, responseJson, string.Empty, string.Empty);
             }
             catch (RpcException ex)
             {
                 _logger.LogError(ex, "gRPC BioAnalyze (Emotion) call failed");
                 faceAnalyticsResponse.ErrorCode = 500;
                 faceAnalyticsResponse.ErrorMessage = "Face emotion service is unavailable.";
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceEmotion, reqId, requestTimestamp, requestPayloadJson, "{}", ex.StatusCode.ToString(), "GRPC");
             }
             catch (FormatException ex)
             {
@@ -411,6 +446,10 @@ namespace MxfaceWebAPI.Controllers.V3
                 return StatusCode(400, new ApiErrorResponse { Code = 400, Error = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest });
             }
 
+            var requestTimestamp = DateTime.UtcNow;
+            var reqId = Guid.NewGuid().ToString();
+            var requestPayloadJson = string.Empty;
+
             try
             {
                 // Same BioAnalyze RPC as Quality/Liveness/Analytics/Emotion, requesting Detect
@@ -431,7 +470,7 @@ namespace MxfaceWebAPI.Controllers.V3
                 var bioAnalyzeRequest = new BioAnalyzeRequest
                 {
                     SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
-                    ReqId = Guid.NewGuid().ToString(),
+                    ReqId = reqId,
                     Modalities =
                     {
                         new ModalityInput
@@ -442,12 +481,15 @@ namespace MxfaceWebAPI.Controllers.V3
                         }
                     }
                 };
+                requestPayloadJson = JsonFormatter.Default.Format(bioAnalyzeRequest);
 
                 var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+                var responseJson = JsonFormatter.Default.Format(grpcResponse);
 
                 if (grpcResponse.Ec != 0)
                 {
                     _logger.LogError("BioAnalyze (Detect) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceDetect, reqId, requestTimestamp, requestPayloadJson, responseJson, grpcResponse.Ec.ToString(), "MASTER");
                     return StatusCode(500, new ApiErrorResponse { Code = 500, Error = grpcResponse.Em });
                 }
 
@@ -455,6 +497,7 @@ namespace MxfaceWebAPI.Controllers.V3
                 if (modalityResult == null || modalityResult.Ec != 0)
                 {
                     _logger.LogError("BioAnalyze (Detect) returned a modality-level error (ec={Ec})", modalityResult?.Ec);
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceDetect, reqId, requestTimestamp, requestPayloadJson, responseJson, modalityResult?.Ec.ToString() ?? "MODALITY", "MASTER");
                     return StatusCode(500, new ApiErrorResponse { Code = 500, Error = "Face detection could not be determined." });
                 }
 
@@ -470,11 +513,13 @@ namespace MxfaceWebAPI.Controllers.V3
                             : null
                     }).ToList()
                 };
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceDetect, reqId, requestTimestamp, requestPayloadJson, responseJson, string.Empty, string.Empty);
                 return Ok(faceDetectResponse);
             }
             catch (RpcException ex)
             {
                 _logger.LogError(ex, "gRPC BioAnalyze (Detect) call failed");
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceDetect, reqId, requestTimestamp, requestPayloadJson, "{}", ex.StatusCode.ToString(), "GRPC");
                 return StatusCode(500, new ApiErrorResponse { Code = 500, Error = "Face detection service is unavailable." });
             }
             catch (FormatException ex)
@@ -871,6 +916,10 @@ namespace MxfaceWebAPI.Controllers.V3
                 return StatusCode(400, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(400, global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest));
             }
 
+            var requestTimestamp = DateTime.UtcNow;
+            var reqId = Guid.NewGuid().ToString();
+            var requestPayloadJson = string.Empty;
+
             try
             {
                 // Same BioAnalyze RPC as Quality (see that action's comment for why — it's a
@@ -891,7 +940,7 @@ namespace MxfaceWebAPI.Controllers.V3
                 var bioAnalyzeRequest = new BioAnalyzeRequest
                 {
                     SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
-                    ReqId = Guid.NewGuid().ToString(),
+                    ReqId = reqId,
                     Modalities =
                     {
                         new ModalityInput
@@ -902,12 +951,15 @@ namespace MxfaceWebAPI.Controllers.V3
                         }
                     }
                 };
+                requestPayloadJson = JsonFormatter.Default.Format(bioAnalyzeRequest);
 
                 var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+                var responseJson = JsonFormatter.Default.Format(grpcResponse);
 
                 if (grpcResponse.Ec != 0)
                 {
                     _logger.LogError("BioAnalyze (Liveness) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceLiveness, reqId, requestTimestamp, requestPayloadJson, responseJson, grpcResponse.Ec.ToString(), "MASTER");
                     return StatusCode(500, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(500, grpcResponse.Em));
                 }
 
@@ -915,6 +967,7 @@ namespace MxfaceWebAPI.Controllers.V3
                 if (modalityResult == null || modalityResult.Ec != 0 || modalityResult.Faces.Count == 0)
                 {
                     _logger.LogError("BioAnalyze (Liveness) returned no usable face result (modality ec={Ec})", modalityResult?.Ec);
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceLiveness, reqId, requestTimestamp, requestPayloadJson, responseJson, modalityResult?.Ec.ToString() ?? "MODALITY", "MASTER");
                     return StatusCode(500, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(500, "Face liveness could not be determined."));
                 }
 
@@ -923,6 +976,7 @@ namespace MxfaceWebAPI.Controllers.V3
                 if (faceResult.Liveness == null)
                 {
                     _logger.LogError("BioAnalyze (Liveness) returned a face with no Liveness result populated");
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceLiveness, reqId, requestTimestamp, requestPayloadJson, responseJson, "NO_LIVENESS", "MASTER");
                     return StatusCode(500, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(500, "Face liveness could not be determined."));
                 }
 
@@ -931,11 +985,14 @@ namespace MxfaceWebAPI.Controllers.V3
                 // 100 to produce a 0-1 LivenessScore, e.g. a raw score of 94 -> 0.94) until
                 // confirmed with the ABIS/master team — same flagged-placeholder treatment as
                 // BioFormat/BioPosition above (see CLAUDE.md "Known placeholder/unconfirmed values").
-                response.LivenessScore = faceResult.Liveness.Score / 100f;
+                response.LivenessScore = faceResult.Liveness.Score;
+                //response.LivenessScore = faceResult.Liveness.Score / 100f;
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceLiveness, reqId, requestTimestamp, requestPayloadJson, responseJson, string.Empty, string.Empty);
             }
             catch (RpcException ex)
             {
                 _logger.LogError(ex, "gRPC BioAnalyze (Liveness) call failed");
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceLiveness, reqId, requestTimestamp, requestPayloadJson, "{}", ex.StatusCode.ToString(), "GRPC");
                 return StatusCode(500, MxfaceWebAPI.Models.Response.ApiErrorEnvelope.Create(500, "Face liveness service is unavailable."));
             }
             catch (FormatException ex)
@@ -966,5 +1023,60 @@ namespace MxfaceWebAPI.Controllers.V3
 
             return Task.FromResult<ActionResult<T>>(Ok(result));
         }
+
+        private static string Truncate(string value, int maxLength) =>
+           value.Length <= maxLength ? value : value[..maxLength];
+
+        // A failed audit-log write must never turn a real (successful or already-failed)
+        // biometric call into a different outcome for the caller — swallow and log only. Same
+        // convention as BiometricControllerBase.LogTransactionSafeAsync.
+        private async Task LogTransactionSafeAsync(TransactionLogEntry entry)
+        {
+            try
+            {
+                await _postgresHelper.LogTransactionAsync(entry);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to write transaction log for reqId {ReqId}", entry.ReqId);
+            }
+        }
+
+        // Shared by every BioAnalyze-based action (Quality/Liveness/Analytics/Emotion/Detect) —
+        // each one only supplies its own featureType/reqId/requestTimestamp (captured at the top of
+        // the action, since reqId also needs to go into the outgoing BioAnalyzeRequest) plus the
+        // per-call request/response payload and error info. Replaces what used to be a separate
+        // local function duplicated in each action.
+        private async Task LogFaceTransactionAsync(
+            int featureType, string reqId, DateTime requestTimestamp,
+            string requestPayload, string responsePayload, string error, string errorPoint)
+        {
+            var clientId = ResolvedClientId ?? 0;
+            var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+            await LogTransactionSafeAsync(new TransactionLogEntry
+            {
+                ClientId = clientId,
+                ReqId = Truncate(reqId, 36),
+                RequestPayload = requestPayload,
+                RequestTimestamp = requestTimestamp,
+                ResponsePayload = responsePayload,
+                Error = Truncate(error, 10),
+                ResponseTimestamp = DateTime.UtcNow,
+                ErrorPoint = errorPoint,
+                FeatureType = featureType,
+                QuotaCount = 1,
+                ClientIp = Truncate(clientIp, 50),
+                CreatedBy = clientId
+            });
+        }
+
+        private static int MapBioFormatCode(string format) => format switch
+        {
+            "BMP" => BioFormatBmp,
+            "JPEG" => BioFormatJpeg,
+            "PNG" => BioFormatPng,
+            _ => throw new InvalidDataException($"Unsupported image format for BioAnalyze: {format}")
+        };
+
     }
 }

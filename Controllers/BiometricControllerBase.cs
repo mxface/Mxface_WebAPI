@@ -135,10 +135,11 @@ namespace MxfaceWebAPI.Controllers
 
                 var masterFailed = !string.IsNullOrEmpty(masterErrorCode) && masterErrorCode != "0";
 
-                if (masterFailed)
+                // Builds the same error TResponse/transaction-log pair for a rejected operation,
+                // whether the rejection came from the top-level envelope ec or from a per-record
+                // ec inside a "data" array (see below) — pure shared tail, no behavior difference.
+                async Task<TResponse> BuildMasterErrorResponseAsync(string? ec, string? em)
                 {
-                    _logger.LogError("Master rejected {Operation}: ec={ErrorCode} em={ErrorMessage}", operationName, masterErrorCode, masterErrorMessage);
-
                     await LogTransactionSafeAsync(new TransactionLogEntry
                     {
                         ClientId = clientId,
@@ -146,7 +147,7 @@ namespace MxfaceWebAPI.Controllers
                         RequestPayload = envelope.Data,
                         RequestTimestamp = requestTimestamp,
                         ResponsePayload = grpcResponse.ResponseJson,
-                        Error = Truncate(masterErrorCode ?? "MASTER", ErrorMaxLength),
+                        Error = Truncate(ec ?? "MASTER", ErrorMaxLength),
                         ResponseTimestamp = responseTimestamp,
                         ErrorPoint = "MASTER",
                         FeatureType = featureType,
@@ -155,16 +156,7 @@ namespace MxfaceWebAPI.Controllers
                         CreatedBy = clientId
                     });
 
-                    if (fallbackGrpcCall != null && (shouldRetryWithFallback?.Invoke(masterErrorCode, masterErrorMessage) ?? false))
-                    {
-                        _logger.LogInformation(
-                            "{Operation}: master reported '{ErrorMessage}' — retrying via Update for an existing identity",
-                            operationName, masterErrorMessage);
-                        return await CallAsync<TResponse>(
-                            fallbackMode ?? mode, requestPayload, fallbackGrpcCall, operationName + "->Update", featureType);
-                    }
-
-                    var mapping = MasterErrorMapper.Map(masterErrorMessage);
+                    var mapping = MasterErrorMapper.Map(em);
                     Response.StatusCode = mapping.HttpStatus;
                     var errorResponse = new TResponse { Code = mapping.HttpStatus };
                     if (mapping.Field == "message")
@@ -176,6 +168,45 @@ namespace MxfaceWebAPI.Controllers
                         errorResponse.ErrorMessage = mapping.Message;
                     }
                     return errorResponse;
+                }
+
+                if (masterFailed)
+                {
+                    _logger.LogError("Master rejected {Operation}: ec={ErrorCode} em={ErrorMessage}", operationName, masterErrorCode, masterErrorMessage);
+
+                    if (fallbackGrpcCall != null && (shouldRetryWithFallback?.Invoke(masterErrorCode, masterErrorMessage) ?? false))
+                    {
+                        await BuildMasterErrorResponseAsync(masterErrorCode, masterErrorMessage);
+                        _logger.LogInformation(
+                            "{Operation}: master reported '{ErrorMessage}' — retrying via Update for an existing identity",
+                            operationName, masterErrorMessage);
+                        return await CallAsync<TResponse>(
+                            fallbackMode ?? mode, requestPayload, fallbackGrpcCall, operationName + "->Update", featureType);
+                    }
+
+                    return await BuildMasterErrorResponseAsync(masterErrorCode, masterErrorMessage);
+                }
+
+                // Delete's response can be an ARRAY of per-referenceId results, each with its own
+                // ec/em — e.g. [{"referenceId":"...", "ec":"-1020", "em":"Citizen not found"}].
+                // Top-level ec=="0" only means the REQUEST was accepted; a per-record ec != "0"
+                // means that record's operation actually failed even though the envelope says
+                // success — without this check it fell into the "not an object" branch below and
+                // silently returned a blank, forced-success TResponse.
+                if (dataElement.HasValue && dataElement.Value.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var itemEl in dataElement.Value.EnumerateArray())
+                    {
+                        var itemEc = itemEl.TryGetProperty("ec", out var itemEcEl) && itemEcEl.ValueKind == JsonValueKind.String
+                            ? itemEcEl.GetString() : null;
+                        if (!string.IsNullOrEmpty(itemEc) && itemEc != "0")
+                        {
+                            var itemEm = itemEl.TryGetProperty("em", out var itemEmEl) && itemEmEl.ValueKind == JsonValueKind.String
+                                ? itemEmEl.GetString() : null;
+                            _logger.LogError("Master rejected {Operation} for a record: ec={ErrorCode} em={ErrorMessage}", operationName, itemEc, itemEm);
+                            return await BuildMasterErrorResponseAsync(itemEc, itemEm);
+                        }
+                    }
                 }
 
                 // Not every operation's "data" is a JSON object on success — Delete's, for
@@ -370,7 +401,7 @@ namespace MxfaceWebAPI.Controllers
 
         // A failed audit-log write must never turn a real (successful or already-failed)
         // biometric call into a different outcome for the caller — swallow and log only.
-        private async Task LogTransactionSafeAsync(TransactionLogEntry entry)
+        protected async Task LogTransactionSafeAsync(TransactionLogEntry entry)
         {
             try
             {
@@ -382,7 +413,7 @@ namespace MxfaceWebAPI.Controllers
             }
         }
 
-        private static string Truncate(string value, int maxLength) =>
+        protected static string Truncate(string value, int maxLength) =>
             value.Length <= maxLength ? value : value[..maxLength];
     }
 }

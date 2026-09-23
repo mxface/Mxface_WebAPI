@@ -4,5 +4,7 @@ namespace MxfaceWebAPI.Models
     {
         public bool? IsLive { get; set; }
         public float? LivenessScore { get; set; }
+        public int? ExtractedQuality { get; set; }
+        public string? BiometricStatus { get; set; }
     }
 }

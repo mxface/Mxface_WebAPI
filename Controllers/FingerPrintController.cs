@@ -1,3 +1,5 @@
+using Google.Protobuf;
+using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MxfaceWebAPI.Common;
@@ -6,6 +8,8 @@ using MxfaceWebAPI.Filters;
 using MxfaceWebAPI.Grpc;
 using MxfaceWebAPI.Grpc.AbisClient;
 using MxfaceWebAPI.Models;
+using AnalyzeImage = MxfaceWebAPI.Grpc.Extract.AnalyzeImage;
+using FeatureFlags = MxfaceWebAPI.Grpc.Extract.FeatureFlags;
 
 namespace MxfaceWebAPI.Controllers
 {
@@ -24,6 +28,19 @@ namespace MxfaceWebAPI.Controllers
         private const int SearchMode = 0;
         private const int DeleteMode = 0;
         private const int LivenessMode = 0;
+        private const int FinagerModality = 1;
+
+        // TODO: same unconfirmed-placeholder caveat as FaceController's BioFormat/BioPosition codes —
+        // neither abis_client.proto nor extract.proto defines what these integers mean beyond
+        // BioModality (see CLAUDE.md "Known placeholder/unconfirmed values").
+        private const int FingerPosition = 0;
+        private static int MapBioFormatCode(string format) => format switch
+        {
+            "BMP" => 0,
+            "JPEG" => 1,
+            "PNG" => 2,
+            _ => throw new InvalidDataException($"Unsupported image format for BioAnalyze: {format}")
+        };
 
         // Per the official ABIS Client API v2.0 reference doc's Biometric Data Formats table
         // (§21): format="BMP" pairs with version="0" — "2005"/"2011" only apply to the ISO
@@ -349,26 +366,143 @@ namespace MxfaceWebAPI.Controllers
         [ApiExplorerSettings(GroupName = "BiometricAPI")]
         [Route("Liveness", Name = "CheckFingerPrintLiveness")]
         [APIAuthorizationFilter]
-        public Task<FingerprintLivenessResponse> Liveness([FromBody] FingerprintLivenessRequest request)
+        public async Task<FingerprintLivenessResponse> Liveness([FromBody] FingerprintLivenessRequest request)
         {
             var response = new FingerprintLivenessResponse();
+
+            if (request == null || string.IsNullOrEmpty(request.FingerPrintData))
+            {
+                response.ErrorMessage = InvalidRequestMessage;
+                response.Code = BiometricResponseCode.BadRequest;
+                Response.StatusCode = BiometricResponseCode.BadRequest;
+                return response;
+            }
+
+            var requestTimestamp = DateTime.UtcNow;
+            var clientId = ResolvedClientId ?? 0;
+            var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+            var reqId = Guid.NewGuid().ToString();
+            var requestPayloadJson = string.Empty;
+
+            // Liveness calls BioAnalyzeAsync directly rather than through CallAsync (BioAnalyze is
+            // its own RPC, not the generic ClientApiRequest envelope), so it never hit the one
+            // place that writes faceclient_db.transactions — this local function reuses the same
+            // safe LogTransactionSafeAsync helper CallAsync itself uses.
+            async Task LogLivenessTransactionAsync(string responsePayload, string error, string errorPoint) =>
+                await LogTransactionSafeAsync(new TransactionLogEntry
+                {
+                    ClientId = clientId,
+                    ReqId = Truncate(reqId, 36),
+                    RequestPayload = requestPayloadJson,
+                    RequestTimestamp = requestTimestamp,
+                    ResponsePayload = responsePayload,
+                    Error = Truncate(error, 10),
+                    ResponseTimestamp = DateTime.UtcNow,
+                    ErrorPoint = errorPoint,
+                    FeatureType = BiometricFeatureType.FingerPrintLiveness,
+                    QuotaCount = 1,
+                    ClientIp = Truncate(clientIp, 50),
+                    CreatedBy = clientId
+                });
+
             try
             {
-                if (request == null || string.IsNullOrEmpty(request.FingerPrintData))
+                // Same BioAnalyze RPC as Quality (see that action's comment for why — it's a
+                // directly-typed RPC, not the generic ClientApiRequest envelope), with
+                // FeatureFlags.Liveness instead of Quality.
+                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.FingerPrintData);
+                var imageBytes = Convert.FromBase64String(request.FingerPrintData);
+
+                var analyzeImage = new AnalyzeImage
                 {
-                    response.ErrorMessage = InvalidRequestMessage;
-                    response.Code = BiometricResponseCode.BadRequest;
-                    Response.StatusCode = BiometricResponseCode.BadRequest;
-                    return Task.FromResult(response);
+                    Data = ByteString.CopyFrom(imageBytes),
+                    Format = MapBioFormatCode(format),
+                    Position = FingerPosition,
+                    Width = width ?? 0,
+                    Height = height ?? 0
+                };
+
+                var bioAnalyzeRequest = new BioAnalyzeRequest
+                {
+                    SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
+                    ReqId = reqId,
+                    Modalities =
+                    {
+                        new ModalityInput
+                        {
+                            Modality = FinagerModality,
+                            Images = { analyzeImage },
+                            Features = new FeatureFlags { Liveness = true, Quality = true }
+                        }
+                    }
+                };
+                requestPayloadJson = JsonFormatter.Default.Format(bioAnalyzeRequest);
+
+                var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+                var responseJson = JsonFormatter.Default.Format(grpcResponse);
+
+                if (grpcResponse.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Liveness) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
+                    response.Code = BiometricResponseCode.ServiceUnavailable;
+                    response.ErrorMessage = grpcResponse.Em;
+                    await LogLivenessTransactionAsync(responseJson, grpcResponse.Ec.ToString(), "MASTER");
+                    return response;
                 }
-                return CallAsync<FingerprintLivenessResponse>(
-                    LivenessMode, request, (r, o) => _clientApiClient.MatchAsync(r, o).ResponseAsync, nameof(Liveness),
-                    BiometricFeatureType.FingerPrintLiveness);
+
+                var modalityResult = grpcResponse.Results.FirstOrDefault();
+                if (modalityResult == null || modalityResult.Ec != 0 || modalityResult.Fingers.Count == 0)
+                {
+                    _logger.LogError("BioAnalyze (Liveness) returned no usable fingerprint result (modality ec={Ec})", modalityResult?.Ec);
+                    response.Code = BiometricResponseCode.ServiceUnavailable;
+                    response.ErrorMessage = "Fingerprint liveness could not be determined.";
+                    await LogLivenessTransactionAsync(responseJson, modalityResult?.Ec.ToString() ?? "MODALITY", "MASTER");
+                    return response;
+                }
+
+                var fingerResult = modalityResult.Fingers[0];
+                if (fingerResult.Liveness == null)
+                {
+                    _logger.LogError("BioAnalyze (Liveness) returned a fingerprint with no Liveness result populated");
+                    response.Code = BiometricResponseCode.ServiceUnavailable;
+                    response.ErrorMessage = "Fingerprint liveness could not be determined.";
+                    await LogLivenessTransactionAsync(responseJson, "NO_LIVENESS", "MASTER");
+                    return response;
+                }
+
+                // TODO: ALiveness.Score (extract.proto) is an unscaled int32 — same 0-100 vs 0-1
+                // assumption flagged on FaceController.Liveness, pending ABIS/master confirmation.
+                response.IsLive = fingerResult.Liveness.Live;
+                response.LivenessScore = fingerResult.Liveness.Score;
+                //response.LivenessScore = fingerResult.Liveness.Score / 100f;
+                response.ExtractedQuality = fingerResult.Quality;
+                response.BiometricStatus = fingerResult.Ec != 0
+                    ? $"Error({fingerResult.Ec})"
+                    : (fingerResult.Liveness.Live ? "Live" : "NotLive");
+                response.Message = grpcResponse.Em;
+                response.Code = BiometricResponseCode.Success;
+                await LogLivenessTransactionAsync(responseJson, string.Empty, string.Empty);
             }
-            catch (Exception)
+            catch (RpcException ex)
             {
-                throw;
-            }         
+                _logger.LogError(ex, "gRPC BioAnalyze (Liveness) call failed");
+                response.Code = BiometricResponseCode.ServiceUnavailable;
+                response.ErrorMessage = "Fingerprint liveness service is unavailable.";
+                await LogLivenessTransactionAsync("{}", ex.StatusCode.ToString(), "GRPC");
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Liveness received invalid base64 data");
+                response.Code = BiometricResponseCode.BadRequest;
+                response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64;
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogError(ex, "Liveness received an unrecognized or malformed image");
+                response.Code = BiometricResponseCode.BadRequest;
+                response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage;
+            }
+            return response;
         }
         #endregion
     }

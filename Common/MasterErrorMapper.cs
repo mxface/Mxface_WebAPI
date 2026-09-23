@@ -41,6 +41,13 @@ namespace MxfaceWebAPI.Common
                 return new MasterErrorMapping(StatusCodes.Status500InternalServerError, "message", "Something went wrong, please try again later");
             }
 
+            // "Citizen not found" (ec=-1020) — the referenceId doesn't exist under this client's
+            // tenant (either never enrolled, or belongs to a different subscription key entirely).
+            if (lower.Contains("citizen") && lower.Contains("not found"))
+            {
+                return new MasterErrorMapping(StatusCodes.Status400BadRequest, "message", "External Id Not found");
+            }
+
             return new MasterErrorMapping(StatusCodes.Status400BadRequest, "message", em ?? string.Empty);
         }
 

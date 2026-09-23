@@ -16,5 +16,10 @@ namespace MxfaceWebAPI.Common
         public const int FingerPrintDelete = 9;
         public const int FingerPrintLiveness = 10;
         public const int FaceEnroll = 11;
+        public const int FaceQuality = 12;
+        public const int FaceLiveness = 13;
+        public const int FaceAnalytics = 14;
+        public const int FaceEmotion = 15;
+        public const int FaceDetect = 16;
     }
 }
