@@ -477,7 +477,7 @@ namespace MxfaceWebAPI.Controllers.V3
                         {
                             Modality = FaceModality,
                             Images = { analyzeImage },
-                            Features = new FeatureFlags { Detect = true, Landmark = true, Crop = model.GetCroppedFace }
+                            Features = new FeatureFlags { Detect = true, Landmark = true,Quality=true, Crop = model.GetCroppedFace }
                         }
                     }
                 };
@@ -504,10 +504,12 @@ namespace MxfaceWebAPI.Controllers.V3
                 // No face found is a valid empty result for a detection endpoint, not an error.
                 var faceDetectResponse = new FaceDetectResponse
                 {
+                   
                     Faces = modalityResult.Faces.Select(f => new FaceDetect
                     {
+                        Quality = f.Quality,
                         FaceRectangle = f.Rect == null ? null : new FaceRectangle { x = f.Rect.X, y = f.Rect.Y, width = f.Rect.W, height = f.Rect.H },
-                        Points = f.Landmarks.Select(l => new Points { X = l.X, Y = l.Y }).ToList(),
+                        //Points = f.Landmarks.Select(l => new Points { X = l.X, Y = l.Y }).ToList(),
                         croppedFace = model.GetCroppedFace && f.CroppedFace.Length > 0
                             ? Convert.ToBase64String(f.CroppedFace.ToByteArray())
                             : null
@@ -673,10 +675,10 @@ namespace MxfaceWebAPI.Controllers.V3
         }
         #endregion
 
-        #region Face API Landmark-- From NEURO
+        #region Face API Landmark
 
         /// <summary>
-        /// get landmark from face (emotion, age, gender)-- From Neuro
+        /// get eye/nose/mouth landmark points for the face(s) in the image
         /// </summary>
         /// <param name="model"></param>
         /// <returns></returns>
@@ -686,25 +688,122 @@ namespace MxfaceWebAPI.Controllers.V3
         [APIAuthorizationFilter]
         public async Task<ActionResult<FaceLandmarkResponse>> Landmark([FromBody] DetectFace model)
         {
-            int status_code = 200;
-            string message = string.Empty;
-            FaceLandmarkResponse faceDetectResponse = new FaceLandmarkResponse();
+            FaceLandmarkResponse faceLandmarkResponse = new FaceLandmarkResponse();
+
+            if (model == null || string.IsNullOrWhiteSpace(model.encoded_image))
+            {
+                faceLandmarkResponse.ErrorCode = 400;
+                faceLandmarkResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
+                return await ReturnResponse(faceLandmarkResponse).ConfigureAwait(true);
+            }
+
+            var requestTimestamp = DateTime.UtcNow;
+            var reqId = Guid.NewGuid().ToString();
+            var requestPayloadJson = string.Empty;
+
             try
             {
-                if (model == null || (model != null && string.IsNullOrWhiteSpace(model.encoded_image)))
+                // Same BioAnalyze RPC as Quality/Liveness/Analytics/Emotion/Detect, requesting
+                // Detect (to localize the face) + Landmark for eye/nose/mouth points.
+                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.encoded_image);
+                var imageBytes = Convert.FromBase64String(model.encoded_image);
+
+                var analyzeImage = new AnalyzeImage
                 {
-                    faceDetectResponse.ErrorCode = 400;
-                    faceDetectResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
-                }
-                else if (model.encoded_image != null && model.encoded_image.Length > 0)
+                    Data = ByteString.CopyFrom(imageBytes),
+                    Format = MapBioFormatCode(format),
+                    Position = FacePosition,
+                    Width = width ?? 0,
+                    Height = height ?? 0
+                };
+
+                var bioAnalyzeRequest = new BioAnalyzeRequest
                 {
-                    //faceDetectResponse = NeuroBiometric.Landmark(model);
+                    SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
+                    ReqId = reqId,
+                    Modalities =
+                    {
+                        new ModalityInput
+                        {
+                            Modality = FaceModality,
+                            Images = { analyzeImage },
+                            Features = new FeatureFlags { Detect = true, Landmark = true, Quality = true, Crop = model.GetCroppedFace }
+                        }
+                    }
+                };
+                requestPayloadJson = JsonFormatter.Default.Format(bioAnalyzeRequest);
+
+                var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+                var responseJson = JsonFormatter.Default.Format(grpcResponse);
+
+                if (grpcResponse.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Landmark) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
+                    faceLandmarkResponse.ErrorCode = 500;
+                    faceLandmarkResponse.ErrorMessage = grpcResponse.Em;
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceLandmark, reqId, requestTimestamp, requestPayloadJson, responseJson, grpcResponse.Ec.ToString(), "MASTER");
+                    return await ReturnResponse(faceLandmarkResponse).ConfigureAwait(true);
                 }
+
+                var modalityResult = grpcResponse.Results.FirstOrDefault();
+                if (modalityResult == null || modalityResult.Ec != 0)
+                {
+                    _logger.LogError("BioAnalyze (Landmark) returned a modality-level error (ec={Ec})", modalityResult?.Ec);
+                    faceLandmarkResponse.ErrorCode = 500;
+                    faceLandmarkResponse.ErrorMessage = "Face landmark detection could not be determined.";
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceLandmark, reqId, requestTimestamp, requestPayloadJson, responseJson, modalityResult?.Ec.ToString() ?? "MODALITY", "MASTER");
+                    return await ReturnResponse(faceLandmarkResponse).ConfigureAwait(true);
+                }
+
+                // No face found is a valid empty result for a detection endpoint, not an error.
+                // f.Rect is a protobuf message-type field — null when the master doesn't populate
+                // it (e.g. a degenerate/non-real-face image), not just a default struct.
+                // Points = the 4 corners of the bounding box (matches the old Neurotec-based API's
+                // actual contract — NOT eye/nose/mouth points, despite the action's name). The real
+                // named landmarks go in FaceLandmark below.
+                faceLandmarkResponse.Faces = modalityResult.Faces.Select(f => new Landmarks
+                {
+                    Quality = f.Quality,
+                    FaceRectangle = f.Rect == null ? null : new FaceRectangle { x = f.Rect.X, y = f.Rect.Y, width = f.Rect.W, height = f.Rect.H },
+                    Points = f.Rect == null ? new List<Points>() : new List<Points>
+                    {
+                        new Points { X = f.Rect.X, Y = f.Rect.Y },
+                        new Points { X = f.Rect.X + f.Rect.W, Y = f.Rect.Y },
+                        new Points { X = f.Rect.X + f.Rect.W, Y = f.Rect.Y + f.Rect.H },
+                        new Points { X = f.Rect.X, Y = f.Rect.Y + f.Rect.H }
+                    },
+                    croppedFace = model.GetCroppedFace && f.CroppedFace.Length > 0
+                        ? Convert.ToBase64String(f.CroppedFace.ToByteArray())
+                        : null,
+                    // Confirmed live from a real master response: landmarks come back named
+                    // "leftEye"/"rightEye"/"noseTip"/"mouthCenter" — no mouth-corner points exist
+                    // in the master's landmark set at all (only these 4), so MouthLeft/MouthRight
+                    // (never actually populated even by the old Neurotec code) aren't derivable here.
+                    FaceLandmark = BuildFaceLandmark(f.Landmarks)
+                }).ToList();
+                faceLandmarkResponse.Code = 200;
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceLandmark, reqId, requestTimestamp, requestPayloadJson, responseJson, string.Empty, string.Empty);
             }
-            catch (Exception ex)
-            {               
+            catch (RpcException ex)
+            {
+                _logger.LogError(ex, "gRPC BioAnalyze (Landmark) call failed");
+                faceLandmarkResponse.ErrorCode = 500;
+                faceLandmarkResponse.ErrorMessage = "Face landmark service is unavailable.";
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceLandmark, reqId, requestTimestamp, requestPayloadJson, "{}", ex.StatusCode.ToString(), "GRPC");
             }
-            return await ReturnResponse(faceDetectResponse).ConfigureAwait(true);
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Landmark received invalid base64 data");
+                faceLandmarkResponse.ErrorCode = 400;
+                faceLandmarkResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64;
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogError(ex, "Landmark received an unrecognized or malformed image");
+                faceLandmarkResponse.ErrorCode = 400;
+                faceLandmarkResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage;
+            }
+            return await ReturnResponse(faceLandmarkResponse).ConfigureAwait(true);
         }
         #endregion
 
@@ -1078,5 +1177,25 @@ namespace MxfaceWebAPI.Controllers.V3
             _ => throw new InvalidDataException($"Unsupported image format for BioAnalyze: {format}")
         };
 
+        // Landmark name strings confirmed live from a real master response (2026-09-24):
+        // "leftEye"/"rightEye"/"noseTip"/"mouthCenter" — the master's landmark set has no other
+        // named points (no mouth corners), so FaceLandmark can only ever populate these 4.
+        private static FaceLandmark BuildFaceLandmark(IEnumerable<Grpc.Extract.ALandmark> landmarks)
+        {
+            var landmarkList = landmarks.ToList();
+            PointLocation? Find(string name) =>
+                landmarkList.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase)) is { } match
+                    ? new PointLocation { X = match.X, Y = match.Y }
+                    : null;
+
+            return new FaceLandmark
+            {
+                eye_left = Find("leftEye"),
+                eye_right = Find("rightEye"),
+                Nose = Find("noseTip"),
+                MouthCenter = Find("mouthCenter"),
+                FeaturePoints = landmarkList.Select(l => new PointLocation { X = l.X, Y = l.Y }).ToList()
+            };
+        }
     }
 }
