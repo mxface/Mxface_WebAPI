@@ -35,6 +35,8 @@ namespace MxfaceWebAPI.Controllers.V3
         // to build the ABIS admin/clients URL in GroupService's calls to IAbisAdminApiClient.
         private string? ResolvedClientCode =>
             HttpContext.Items.TryGetValue("ClientCode", out var value) && value is string clientCode ? clientCode : null;
+        private long? ResolvedUserId =>
+            HttpContext.Items.TryGetValue("UserId", out var value) && value is long userId ? userId : null;
 
         [HttpGet("{groupId}", Name = "getByGroupId")]
         [APIAuthorizationFilter]
@@ -81,7 +83,8 @@ namespace MxfaceWebAPI.Controllers.V3
 
             var clientId = ResolvedClientId!.Value;
             var clientCode = ResolvedClientCode ?? string.Empty;
-            var result = await _groupService.CreateGroupAsync(clientId, model, clientCode);
+            var userId = ResolvedUserId!.Value;
+            var result = await _groupService.CreateGroupAsync(clientId, model, clientCode, userId);
             return result.Success
                 ? Ok(result.Group)
                 : StatusCode(result.StatusCode, GroupErrorResponse.Create(result.StatusCode, result.ErrorMessage ?? "Failed to create group."));

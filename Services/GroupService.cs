@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using MxfaceWebAPI.Common;
 using MxfaceWebAPI.Data;
+using MxfaceWebAPI.Models;
 using MxfaceWebAPI.Models.AdminApi;
 using MxfaceWebAPI.Models.Request.Group;
 using MxfaceWebAPI.Models.Response.Group;
@@ -16,15 +17,18 @@ namespace MxfaceWebAPI.Services
         private static readonly Regex ValidGroupNamePattern = new(@"^[A-Za-z0-9 \\_\[\]\(\)\-]+$", RegexOptions.Compiled);
 
         private readonly IGroupDataAccess _groupDataAccess;
+        private readonly IPostgresHelper _postgresHelper;
         private readonly IAbisAdminApiClient _abisAdminApiClient;
         private readonly ILogger<GroupService> _logger;
 
         public GroupService(
             IGroupDataAccess groupDataAccess,
+            IPostgresHelper postgresHelper,
             IAbisAdminApiClient abisAdminApiClient,
             ILogger<GroupService> logger)
         {
             _groupDataAccess = groupDataAccess;
+            _postgresHelper = postgresHelper;
             _abisAdminApiClient = abisAdminApiClient;
             _logger = logger;
         }
@@ -48,7 +52,7 @@ namespace MxfaceWebAPI.Services
             return exact is null ? null : ToResponse(exact);
         }
 
-        public async Task<GroupOperationResult> CreateGroupAsync(long clientId, CreateGroupRequest request, string clientCode)
+        public async Task<GroupOperationResult> CreateGroupAsync(long clientId, CreateGroupRequest request, string clientCode,long userId)
         {
             var validationError = ValidateGroupName(request.GroupName, requireGroupId: false, groupId: null);
             if (validationError is not null)
@@ -96,7 +100,7 @@ namespace MxfaceWebAPI.Services
                 Description = request.Description,
                 IsDefault = request.IsDefault ?? false,
                 AbisGroupId = created.Id.Value,
-                CreatedBy = clientId
+                CreatedBy = userId
             };
 
             var inserted = await _groupDataAccess.AddGroupAsync(group).ConfigureAwait(false);

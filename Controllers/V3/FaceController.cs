@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using MxfaceWebAPI.Common;
 using MxfaceWebAPI.Data;
 using MxfaceWebAPI.Filters;
+using MxfaceWebAPI.Grpc;
 using MxfaceWebAPI.Grpc.AbisClient;
 using MxfaceWebAPI.Grpc.Extract;
 using MxfaceWebAPI.Models;
@@ -23,7 +24,7 @@ namespace MxfaceWebAPI.Controllers.V3
     [ApiVersion("3.0")]
     [ApiController]
     [Route("api/v{version:apiVersion}/[controller]")]
-    public class FaceController : ControllerBase
+    public class FaceController : BiometricControllerBase
     {
         // BioModality code — confirmed directly in abis_client.proto/extract.proto comments:
         // 1=FINGER 2=IRIS 3=FACE.
@@ -39,7 +40,13 @@ namespace MxfaceWebAPI.Controllers.V3
         private const int BioFormatPng = 2;
         private const int FacePosition = 0;
 
-       
+        private const int VerifyMode = 0;
+
+        // Per the official ABIS Client API v2.0 reference doc's Biometric Data Formats table
+        // (§21): raster formats (BMP/JPEG/PNG/RAW/WSQ) all pair with version="0" regardless of
+        // which one — only the ISO FIR/IIR/FID record formats use "2005"/"2011".
+        private const string ImageBioDataVersion = "0";
+
         private readonly ClientApiService.ClientApiServiceClient _clientApiClient;
         private readonly IConfiguration _configuration;
         private readonly ILogger<FaceController> _logger;
@@ -47,7 +54,13 @@ namespace MxfaceWebAPI.Controllers.V3
         public static bool _IsEnabledPassiveLiveness = true;
 
         #region For Refrence Call
-        public FaceController(ClientApiService.ClientApiServiceClient clientApiClient, IConfiguration configuration, ILogger<FaceController> logger, IPostgresHelper postgresHelper)
+        public FaceController(
+            ClientApiService.ClientApiServiceClient clientApiClient,
+            IConfiguration configuration,
+            ILogger<FaceController> logger,
+            IPostgresHelper postgresHelper,
+            IClientApiEnvelopeFactory envelopeFactory)
+            : base(envelopeFactory, configuration, postgresHelper, logger)
         {
             _clientApiClient = clientApiClient;
             _configuration = configuration;
@@ -820,96 +833,152 @@ namespace MxfaceWebAPI.Controllers.V3
         [APIAuthorizationFilter]
         public async Task<ActionResult<MatchedFaceResponse>> Verify([FromBody] VerifyFaces model)
         {
-            float Quality = string.IsNullOrEmpty(_configuration["MXFaceQuality"]) ?
-                float.Parse("0.6") : float.Parse(_configuration["MXFaceQuality"]);
-            int MatchedConfidence = string.IsNullOrEmpty(_configuration["MatchedConfidence"]) ? 60 : Int32.Parse(_configuration["MatchedConfidence"]);
+            var response = new MatchedFaceResponse();
 
-            MatchedFaceResponse matchedFaceResponse = new MatchedFaceResponse();
-
-            if (model == null ||
-                (model != null && model.encoded_image1 == null) ||
-                (model != null && model.encoded_image1 != null && model.encoded_image1.Length <= 0) ||
-                (model != null && model.encoded_image2 == null) ||
-                (model != null &&
-                 model.encoded_image2 != null && model.encoded_image2.Length <= 0))
+            if (model == null || string.IsNullOrEmpty(model.encoded_image1) || string.IsNullOrEmpty(model.encoded_image2))
             {
-                matchedFaceResponse.ErrorCode = 400;
-                matchedFaceResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
+                response.ErrorCode = BiometricResponseCode.BadRequest;
+                response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
+                return await ReturnResponse(response);
             }
-            else if (model.encoded_image1 != null && model.encoded_image1.Length > 0
-                && model.encoded_image2 != null && model.encoded_image2.Length > 0)
-            {
-                try
-                {
-                    if (model.QualityThreshold.HasValue && (model.QualityThreshold > 0 && model.QualityThreshold < 20 || model.QualityThreshold <= 0))
-                    {
-                        matchedFaceResponse.ErrorCode = 400;
-                        matchedFaceResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.ClientQualityThersholdMsg;
-                        return await ReturnResponse(matchedFaceResponse).ConfigureAwait(true);
-                    }
-                    else
-                    {
-                        Quality = model.QualityThreshold.HasValue ? (model.QualityThreshold.Value) : Quality;
-                    }
-                    if (!model.FAR.HasValue)
-                    {
-                        model.FAR = 0.01;
-                    }
 
-                    int matchingThreshold = MatchingThresholdFromString(model.FAR.Value);
-                    bool isValid = false;
-                    switch (matchingThreshold)
+            try
+            {
+                var (format1, width1, height1) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.encoded_image1);
+                var (format2, width2, height2) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.encoded_image2);
+
+                var masterPayload = new FaceVerifyMasterPayload
+                {
+                    Probe = new FaceProbeGalleryPayload
                     {
-                        case 0:
-                            isValid = true;
-                            break;
-                        case 12:
-                            isValid = true;
-                            break;
-                        case 24:
-                            isValid = true;
-                            break;
-                        case 36:
-                            isValid = true;
-                            break;
-                        case 48:
-                            isValid = true;
-                            break;
-                        case 60:
-                            isValid = true;
-                            break;
-                        case 72:
-                            isValid = true;
-                            break;
-                        case 84:
-                            isValid = true;
-                            break;
-                        case 96:
-                            isValid = true;
-                            break;
-                    }
-                    if (isValid == false)
+                        Faces = new FingerprintsPayload
+                        {
+                            BioData = new List<Models.BioData> { new Models.BioData { Format = format1, Version = ImageBioDataVersion, Wd = width1, Ht = height1, Data = model.encoded_image1 } }
+                        }
+                    },
+                    Gallery = new FaceProbeGalleryPayload
                     {
-                        matchedFaceResponse.ErrorCode = 400;
-                        matchedFaceResponse.ErrorMessage = "Invalid request param FAR";
-                        return await ReturnResponse(matchedFaceResponse).ConfigureAwait(true);
+                        Faces = new FingerprintsPayload
+                        {
+                            BioData = new List<Models.BioData> { new Models.BioData { Format = format2, Version = ImageBioDataVersion, Wd = width2, Ht = height2, Data = model.encoded_image2 } }
+                        }
                     }
+                };
+
+                var result = await CallAsync<MatchedFaceResponse>(
+                    VerifyMode, masterPayload, (r, o) => _clientApiClient.MatchAsync(r, o).ResponseAsync, nameof(Verify),
+                    BiometricFeatureType.FaceVerify);
+
+                // ABIS Match only returns the match score — faceRectangle/quality per image come
+                // from a separate BioAnalyze(Detect+Quality) call each, same as the Analytics
+                // endpoint above. Run both concurrently since they're independent of each other.
+                if (result.MatchedFaces?.Count > 0)
+                {
+                    var image1FaceTask = AnalyzeFaceForVerifyAsync(model.encoded_image1);
+                    var image2FaceTask = AnalyzeFaceForVerifyAsync(model.encoded_image2);
+                    await Task.WhenAll(image1FaceTask, image2FaceTask);
+
+                    result.MatchedFaces[0].image1_face = image1FaceTask.Result;
+                    result.MatchedFaces[0].image2_face = image2FaceTask.Result;
+                }
+
+                return await ReturnResponse(result);
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "{Operation} received invalid base64 data", nameof(Verify));
+                return await ReturnResponse(new MatchedFaceResponse
+                {
+                    ErrorCode = BiometricResponseCode.BadRequest,
+                    Message = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64
+                });
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogError(ex, "{Operation} received an unrecognized or malformed image", nameof(Verify));
+                return await ReturnResponse(new MatchedFaceResponse
+                {
+                    ErrorCode = BiometricResponseCode.BadRequest,
+                    Message = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "{Operation} failed unexpectedly", nameof(Verify));
+                return await ReturnResponse(new MatchedFaceResponse
+                {
+                    ErrorCode = BiometricResponseCode.ServiceUnavailable,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.GeneralErrorMessage
+                });
+            }
+        }
+
+        // Runs the same Detect+Quality BioAnalyze combination the Analytics endpoint (above) uses,
+        // for a single image — used by Verify to fill in each side's image#_face (faceRectangle +
+        // quality) alongside the Match result. Returns null rather than throwing when the master
+        // finds no face on that side, since a failed per-side detection shouldn't abort the whole
+        // Verify response (the match result itself is still valid).
+        private async Task<Imageface> AnalyzeFaceForVerifyAsync(string encodedImage)
+        {
+            var requestTimestamp = DateTime.UtcNow;
+            var reqId = Guid.NewGuid().ToString();
+            var requestPayloadJson = string.Empty;
+
+            try
+            {
+                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(encodedImage);
+                var imageBytes = Convert.FromBase64String(encodedImage);
+
+                var analyzeImage = new AnalyzeImage
+                {
+                    Data = ByteString.CopyFrom(imageBytes),
+                    Format = MapBioFormatCode(format),
+                    Position = FacePosition,
+                    Width = width ?? 0,
+                    Height = height ?? 0
+                };
+
+                var bioAnalyzeRequest = new BioAnalyzeRequest
+                {
+                    SubscriptionKey = Request.Headers["subscriptionkey"].ToString(),
+                    ReqId = reqId,
+                    Modalities =
+                    {
+                        new ModalityInput
+                        {
+                            Modality = FaceModality,
+                            Images = { analyzeImage },
+                            Features = new FeatureFlags { Detect = true, Quality = true }
+                        }
+                    }
+                };
+                requestPayloadJson = JsonFormatter.Default.Format(bioAnalyzeRequest);
+
+                var grpcResponse = await _clientApiClient.BioAnalyzeAsync(bioAnalyzeRequest);
+                var responseJson = JsonFormatter.Default.Format(grpcResponse);
+
+                var modalityResult = grpcResponse.Results.FirstOrDefault();
+                if (grpcResponse.Ec != 0 || modalityResult == null || modalityResult.Ec != 0 || modalityResult.Faces.Count == 0)
+                {
+                    _logger.LogError("BioAnalyze (Verify side-detect) found no usable face (ec={Ec})", modalityResult?.Ec ?? grpcResponse.Ec);
+                    await LogFaceTransactionAsync(BiometricFeatureType.FaceAnalytics, reqId, requestTimestamp, requestPayloadJson, responseJson,
+                        (modalityResult?.Ec ?? grpcResponse.Ec).ToString(), "MASTER");
                     return null;
-                    //NeuroBiometric.VerifyMulti(model, 1, Quality, matchingThreshold);
                 }
-                catch (Exception ex)
+
+                var face = modalityResult.Faces[0];
+                await LogFaceTransactionAsync(BiometricFeatureType.FaceAnalytics, reqId, requestTimestamp, requestPayloadJson, responseJson, string.Empty, string.Empty);
+                return new Imageface
                 {
-                    _logger.LogError(ex, "Face Verify V3");                   
-                    matchedFaceResponse.ErrorCode = 500;
-                    matchedFaceResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.GeneralErrorMessage;
-                }
+                    faceRectangle = face.Rect == null ? null : new FaceRectangle { x = face.Rect.X, y = face.Rect.Y, width = face.Rect.W, height = face.Rect.H },
+                    quality = face.Quality
+                };
             }
-            else
+            catch (Exception ex)
             {
-                matchedFaceResponse.ErrorCode = 400;
-                matchedFaceResponse.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
+                _logger.LogError(ex, "AnalyzeFaceForVerifyAsync failed while enriching Verify response");
+                return null;
             }
-            return await ReturnResponse(matchedFaceResponse).ConfigureAwait(true);         
         }
         #endregion
 

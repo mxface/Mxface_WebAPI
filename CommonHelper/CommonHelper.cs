@@ -38,6 +38,16 @@ namespace MxfaceWebAPI.CommonHelper
         public static readonly string OCRFileSizeValidation = "Invalid file size, please pass valid files with file size less then 5 MB";
         public static readonly string ExternalIdNotValid = "ExternalId is not valid";
 
+        // Converts a target False Acceptance Rate (as a percentage, e.g. 0.01 for 0.01%) into the
+        // normalized matching-threshold score an ABIS master confidence value must reach to be
+        // considered a match, per the ABIS Client API doc's FAR -> Threshold formula/table
+        // (Threshold = -12 * log10(FAR), FAR expressed as a fraction — e.g. 0.01% -> 48).
+        public static int MatchingThresholdFromFar(double farPercent)
+        {
+            double p = Math.Log10(Math.Max(double.Epsilon, Math.Min(1, farPercent / 100)));
+            return Math.Max(0, (int)Math.Round(-12 * p));
+        }
+
         // Decodes width/height directly from a BMP header (offsets 18/22, 4-byte little-endian each)
         // so callers never need to supply these themselves for format="RAW" bioData entries — height
         // can be negative in the header for a top-down DIB, hence the Math.Abs.

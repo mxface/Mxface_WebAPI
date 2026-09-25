@@ -90,8 +90,8 @@ namespace MxfaceWebAPI.Controllers
 
             try
             {
-                var (width1, height1) = global::MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(request.FingerPrint1);
-                var (width2, height2) = global::MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(request.FingerPrint2);
+                var (format1,width1, height1) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.FingerPrint1);
+                var (format2,width2, height2) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.FingerPrint2);
                 var masterPayload = new FingerPrintVerifyMasterPayload
                 {
                     Probe = new FingerprintProbeGalleryPayload
@@ -100,7 +100,7 @@ namespace MxfaceWebAPI.Controllers
                         {
                             BioData = new List<BioData>
                             {
-                                new BioData { Format = "BMP", Version = BmpBioDataVersion, Wd = width1, Ht = height1, Data = request.FingerPrint1 }
+                                new BioData { Format = format1, Version = BmpBioDataVersion, Wd = width1, Ht = height1, Data = request.FingerPrint1 }
                             }
                         }
                     },
@@ -110,7 +110,7 @@ namespace MxfaceWebAPI.Controllers
                         {
                             BioData = new List<BioData>
                             {
-                                new BioData { Format = "BMP", Version = BmpBioDataVersion, Wd = width2, Ht = height2, Data = request.FingerPrint2 }
+                                new BioData { Format = format2, Version = BmpBioDataVersion, Wd = width2, Ht = height2, Data = request.FingerPrint2 }
                             }
                         }
                     }
@@ -179,7 +179,7 @@ namespace MxfaceWebAPI.Controllers
                 // The master's real Enroll schema has no identity field of its own — it echoes
                 // back request.ExternalId (sent as demographics.referenceId) inside the response's
                 // "data.referenceId", which BiometricEnrollResponse.IdentityId maps to.
-                var (width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(request.FingerPrint);
+                var (format,width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.FingerPrint);
                 var masterPayload = new FingerPrintEnrollMasterPayload
                 {
                     GroupName = request.Group,
@@ -188,7 +188,7 @@ namespace MxfaceWebAPI.Controllers
                     {
                         BioData = new List<BioData>
                         {
-                            new BioData { Format = "BMP", Version = BmpBioDataVersion, Wd = width, Ht = height, Data = request.FingerPrint }
+                            new BioData { Format = format, Version = BmpBioDataVersion, Wd = width, Ht = height, Data = request.FingerPrint }
                         }
                     }
                 };
@@ -259,7 +259,7 @@ namespace MxfaceWebAPI.Controllers
 
             try
             {
-                var (width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(request.FingerPrint);
+                var (format,width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.FingerPrint);
                 var masterPayload = new FingerPrintSearchMasterPayload
                 {
                     GroupName = request.Group,
@@ -267,7 +267,7 @@ namespace MxfaceWebAPI.Controllers
                     {
                         BioData = new List<BioData>
                         {
-                            new BioData { Format = "BMP", Version = BmpBioDataVersion, Wd = width, Ht = height, Data = request.FingerPrint }
+                            new BioData { Format = format, Version = BmpBioDataVersion, Wd = width, Ht = height, Data = request.FingerPrint }
                         }
                     }
                 };

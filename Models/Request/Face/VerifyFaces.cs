@@ -10,10 +10,6 @@ namespace MxfaceWebAPI.Models.Request.Face
         [JsonIgnore]
         public bool CompareAllFaces { get; set; }
         public int? QualityThreshold { get; set; } = null;
-        public bool GetCroppedFace { get; set; }
-        public bool returnConfidence { get; set; } = false;
-        public string Algorithm { get; set; }
-        public double? FAR { get; set; }
 
     }
 }

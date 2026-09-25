@@ -30,14 +30,6 @@ namespace MxfaceWebAPI.Controllers.V3
         private const int EnrollMode = 0;
         private const int SearchMode = 0;
 
-        // Duplicate-identity threshold for the pre-Enroll similarity check (see reference
-        // D:\LiveBranchDeployment\webapi.face lines 192-250: search the target group first,
-        // reject if a similar identity is already found and model.ForceAdd is false). Fixed at
-        // 60 per explicit instruction, even though real master confidence values observed so far
-        // (Finger/Iris) run in the thousands (e.g. 2626) — this value is expected to need
-        // revisiting once a real Face Search confidence sample is seen.
-        private const float DuplicateMatchThreshold = 60f;
-
         // Per the official ABIS Client API v2.0 reference doc's Biometric Data Formats table
         // (§21): raster formats (BMP/JPEG/PNG/RAW/WSQ) all pair with version="0" regardless of
         // which one — only the ISO FIR/IIR/FID record formats use "2005"/"2011". Unconfirmed
@@ -54,6 +46,7 @@ namespace MxfaceWebAPI.Controllers.V3
         private readonly ClientApiService.ClientApiServiceClient _clientApiClient;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _config;
+        private readonly IGroupService _groupService;
 
         // Resolved by APIAuthorizationFilterAttribute and stashed in HttpContext.Items — same
         // pattern as BiometricControllerBase.ResolvedClientId, kept local here since this
@@ -68,13 +61,14 @@ namespace MxfaceWebAPI.Controllers.V3
 
         #region For Refrence Call
         public FaceIdentityController(ClientApiService.ClientApiServiceClient clientApiClient, IClientApiEnvelopeFactory envelopeFactory,
-                                       IConfiguration configuration, IPostgresHelper postgresHelper, ILogger<FaceIdentityController> logger,
-                                       IEmailService emailService) : base(envelopeFactory, configuration, postgresHelper, logger)
+            IConfiguration configuration, IPostgresHelper postgresHelper, ILogger<FaceIdentityController> logger,
+            IEmailService emailService, IGroupService groupService) : base(envelopeFactory, configuration, postgresHelper, logger)
 
         {
             _clientApiClient = clientApiClient;
             _emailService = emailService;
             _config = configuration;
+            _groupService = groupService;
         }
         #endregion
 
@@ -132,25 +126,47 @@ namespace MxfaceWebAPI.Controllers.V3
             }
             try
             {
+                var clientId = ResolvedClientId!.Value;
+                //int clientId = GetClientID();
+
+                // Resolve every GroupId to its real GroupName from faceclient_db.groups (never send
+                // the raw numeric id to ABIS as groupName) and validate all of them belong to this
+                // client BEFORE making any ABIS call — reject the whole request if even one doesn't
+                // exist, rather than partially enrolling into whichever groups did resolve.
+                var groups = new List<(int GroupId, string GroupName)>();
+                foreach (var groupId in model.GroupIds)
                 {
-                    var clientId = ResolvedClientId!.Value;
-                    //int clientId = GetClientID();
+                    var group = await _groupService.GetGroupAsync(clientId, groupId);
+                    if (group is null)
+                    {
+                        Response.StatusCode = BiometricResponseCode.BadRequest;
+                        return new FaceIdentityInfo
+                        {
+                            Code = BiometricResponseCode.BadRequest,
+                            ErrorMessage = $"Could not find a Group with the specified ID: {groupId}"
+                        };
+                    }
+                    groups.Add((groupId, group.GroupName));
+                }
 
-                    // Multi-group Enroll is out of scope for this pass — only the first GroupId is
-                    // sent as the master's single groupName, matching Finger/Iris's groupName:string
-                    // convention until a real multi-group schema is confirmed.
-                    // Face images commonly arrive as JPEG/PNG, not just BMP like Finger/Iris test
-                    // captures — detect the real format instead of assuming BMP.
+                // Face images commonly arrive as JPEG/PNG, not just BMP like Finger/Iris test
+                // captures — detect the real format instead of assuming BMP.
+                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.Encoded_Image);
+                var bioDataEntry = new BioData { Format = format, Version = ImageBioDataVersion, Wd = width, Ht = height, Data = model.Encoded_Image };
 
-                    var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.Encoded_Image);
-                    var groupName = model.GroupIds.First().ToString();
-                    var bioDataEntry = new BioData { Format = format, Version = ImageBioDataVersion, Wd = width, Ht = height, Data = model.Encoded_Image };
+                FaceIdentityInfo enrollResult = new();
 
-                   
+                // The master's groupName field only takes one group per call, so multiple GroupIds
+                // run the duplicate-check Search + Enroll pair once per group, sequentially. A
+                // referenceId already enrolled from an earlier group in this loop makes the next
+                // group's Enroll call fail as "already enrolled" — CallAsync's existing
+                // shouldRetryWithFallback/Update retry (below) picks that up automatically and
+                // attaches this group to the existing identity instead of surfacing the rejection.
+                foreach (var (groupId, groupName) in groups)
+                {
                     // Reference D:\LiveBranchDeployment\webapi.face FaceIdentityController.cs lines
                     // 192-250: before enrolling, search the target group for a similar existing
                     // identity — reject unless the caller explicitly opts in via ForceAdd.
-
                     if (!model.ForceAdd)
                     {
                         var searchPayload = new FaceSearchMasterPayload
@@ -176,9 +192,9 @@ namespace MxfaceWebAPI.Controllers.V3
                             };
                         }
 
-                        if (searchResult.MatchResult.Any(m => m.MatchingScore.HasValue && m.MatchingScore.Value > DuplicateMatchThreshold))
+                        if (searchResult.MatchResult.Any(m => m.MatchingScore.HasValue && m.MatchingScore.Value > MatchedConfidence))
                         {
-                            _logger.LogInformation("{Operation}: rejecting enroll, a similar identity already exists (ForceAdd=false)", nameof(Enroll));
+                            _logger.LogInformation("{Operation}: rejecting enroll, a similar identity already exists in group {GroupName} (ForceAdd=false)", nameof(Enroll), groupName);
                             Response.StatusCode = BiometricResponseCode.BadRequest;
                             return new FaceIdentityInfo
                             {
@@ -188,7 +204,6 @@ namespace MxfaceWebAPI.Controllers.V3
                         }
                     }
 
-
                     var masterPayload = new FaceEnrollMasterPayload
                     {
                         GroupName = groupName,
@@ -196,15 +211,22 @@ namespace MxfaceWebAPI.Controllers.V3
                         Faces = new FingerprintsPayload { BioData = new List<BioData> { bioDataEntry } }
                     };
 
-                    return await CallAsync<FaceIdentityInfo>(
+                    enrollResult = await CallAsync<FaceIdentityInfo>(
                         EnrollMode, masterPayload, (r, o) => _clientApiClient.EnrolAsync(r, o).ResponseAsync, nameof(Enroll),
                         BiometricFeatureType.FaceEnroll,
-                        // referenceId already has an identity (e.g. enrolled via a different modality
-                        // first) — retry via Update instead of surfacing the rejection, same as
-                        // FingerPrint/Iris Enroll.
+                        // referenceId already has an identity (e.g. enrolled via a different modality,
+                        // or an earlier group in this same loop) — retry via Update instead of
+                        // surfacing the rejection, same as FingerPrint/Iris Enroll.
                         shouldRetryWithFallback: MasterErrorMapper.IsAlreadyEnrolledError,
                         fallbackGrpcCall: (r, o) => _clientApiClient.UpdateAsync(r, o).ResponseAsync);
+
+                    if (enrollResult.Code != BiometricResponseCode.Success)
+                    {
+                        return enrollResult; // abort on the first failing group, don't attempt the rest
+                    }
                 }
+
+                return enrollResult;
             }
             catch (FormatException ex)
             {
@@ -248,68 +270,155 @@ namespace MxfaceWebAPI.Controllers.V3
         [ApiExplorerSettings(GroupName = "Identity V3")]
         public async Task<ActionResult<SearchFaceIdentityResponse>> Search([FromBody] Models.Request.FaceIdentity.SearchFaceIdentity request)
         {
-            // Stub only — was left as an unfinished mix of an empty try body and mismatched
-            // catch-block return types (FaceIdentityInfo vs. the declared
-            // ActionResult<SearchFaceIdentityResponse>). Real implementation is a separate task.
-
             SearchFaceIdentityResponse response = new SearchFaceIdentityResponse();
-            float Quality = 0.7f;
             int MatchedConfidence = string.IsNullOrEmpty(_config["MatchedConfidence"]) ? 60 : Int32.Parse(_config["MatchedConfidence"]);
+
+            if (request == null)
+            {
+                response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
+                response.ErrorCode = BiometricResponseCode.BadRequest;
+                return await ReturnResponse(response).ConfigureAwait(true);
+            }
+            int limit = request.Limit ?? 1;
+            if (limit <= 0)
+            {
+                response.ErrorMessage = "Limit should be greater than 0";
+                response.ErrorCode = BiometricResponseCode.BadRequest;
+                return await ReturnResponse(response).ConfigureAwait(true);
+            }
+            if (limit > 10)
+            {
+                response.ErrorMessage = "Limit should be less than 10";
+                response.ErrorCode = BiometricResponseCode.BadRequest;
+                return await ReturnResponse(response).ConfigureAwait(true);
+            }
+            if (string.IsNullOrWhiteSpace(request.Encoded_Image))
+            {
+                response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest + " Encoded Image is required.";
+                response.ErrorCode = BiometricResponseCode.BadRequest;
+                return await ReturnResponse(response).ConfigureAwait(true);
+            }
+            if (request.GroupIds == null || !request.GroupIds.Any())
+            {
+                response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest + " Group Id is required";
+                response.ErrorCode = BiometricResponseCode.BadRequest;
+                return await ReturnResponse(response).ConfigureAwait(true);
+            }
+            // Validated for contract compatibility only — the master's Identify payload has no
+            // quality-threshold field, so it isn't forwarded.
+            if (request.QualityThreshold.HasValue && (request.QualityThreshold > 0 && request.QualityThreshold < 20 || request.QualityThreshold <= 0))
+            {
+                response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.ClientQualityThersholdMsg;
+                response.ErrorCode = BiometricResponseCode.BadRequest;
+                return await ReturnResponse(response).ConfigureAwait(true);
+            }
+            if (request.MatchConfidence.HasValue && request.MatchConfidence.Value > 0)
+            {
+                MatchedConfidence = request.MatchConfidence.Value;
+            }
 
             try
             {
+                var clientId = ResolvedClientId!.Value;
 
-                if (request == null)
+                // Resolve every GroupId to its real GroupName and validate all of them belong to
+                // this client BEFORE making any ABIS call — same as Enroll.
+                var groups = new List<(int GroupId, string GroupName)>();
+                foreach (var groupId in request.GroupIds)
                 {
-                    response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest;
-                    response.ErrorCode = 400;
-                }
-                else if (request.Limit <= 0)
-                {
-                    response.ErrorMessage = "Limit should be greater than 0";
-                    response.ErrorCode = 400;
-                }
-                else if (request.Limit > 10)
-                {
-                    response.ErrorMessage = "Limit should be less than 10";
-                    response.ErrorCode = 400;
-                }
-                else if (request.Limit <= 0)
-                {
-                    response.ErrorMessage = "Limit should be greater than 0";
-                    response.ErrorCode = 400;
-                }
-                else if (string.IsNullOrWhiteSpace(request.Encoded_Image))
-                {
-                    response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest + " Encoded Image is required.";
-                    response.ErrorCode = 400;
-                }
-                else
-                {
-                    if (request.QualityThreshold.HasValue && (request.QualityThreshold > 0 && request.QualityThreshold < 20 || request.QualityThreshold <= 0))
+                    var group = await _groupService.GetGroupAsync(clientId, groupId);
+                    if (group is null)
                     {
-                        response.ErrorCode = 400;
-                        response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.ClientQualityThersholdMsg;
-
+                        response.ErrorMessage = $"Could not find a Group with the specified ID: {groupId}";
+                        response.ErrorCode = BiometricResponseCode.BadRequest;
                         return await ReturnResponse(response).ConfigureAwait(true);
                     }
-                    else
+                    groups.Add((groupId, group.GroupName));
+                }
+
+                var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.Encoded_Image);
+                var bioDataEntry = new BioData { Format = format, Version = ImageBioDataVersion, Wd = width, Ht = height, Data = request.Encoded_Image };
+
+                // referenceId -> (best score across groups, groups it matched in)
+                var candidates = new Dictionary<string, (float Score, List<int> GroupIds)>();
+
+                // The master's groupName field only takes one group per call, so Identify runs
+                // once per group and the candidate lists are merged.
+                foreach (var (groupId, groupName) in groups)
+                {
+                    var searchPayload = new FaceSearchMasterPayload
                     {
-                        //Quality = request.QualityThreshold.HasValue ? (request.QualityThreshold.Value / 100f) : Quality;
-                        Quality = request.QualityThreshold.HasValue ? request.QualityThreshold.Value : Quality;
-                    }
-                    if (request.MatchConfidence.HasValue && request.MatchConfidence.Value > 0)
+                        GroupName = groupName,
+                        Faces = new FingerprintsPayload { BioData = new List<BioData> { bioDataEntry } }
+                    };
+
+                    var searchResult = await CallAsync<BiometricSearchResponse>(
+                        SearchMode, searchPayload, (r, o) => _clientApiClient.IdentifyAsync(r, o).ResponseAsync, nameof(Search),
+                        BiometricFeatureType.FaceSearch);
+
+                    // MatchResult is only null when the Identify call itself failed — surface it.
+                    if (searchResult.MatchResult == null)
                     {
-                        MatchedConfidence = request.MatchConfidence.Value;
+                        response.ErrorCode = searchResult.Code ?? BiometricResponseCode.ServiceUnavailable;
+                        response.Message = searchResult.Message;
+                        response.ErrorMessage = searchResult.ErrorMessage;
+                        return await ReturnResponse(response).ConfigureAwait(true);
                     }
 
+                    foreach (var match in searchResult.MatchResult.Where(m => !string.IsNullOrEmpty(m.ExternalId) && m.MatchingScore.HasValue))
+                    {
+                        if (candidates.TryGetValue(match.ExternalId!, out var existing))
+                        {
+                            existing.GroupIds.Add(groupId);
+                            candidates[match.ExternalId!] = (Math.Max(existing.Score, match.MatchingScore!.Value), existing.GroupIds);
+                        }
+                        else
+                        {
+                            candidates[match.ExternalId!] = (match.MatchingScore!.Value, new List<int> { groupId });
+                        }
+                    }
                 }
+
+                var identityConfidences = candidates
+                    .Where(c => c.Value.Score >= MatchedConfidence)
+                    .OrderByDescending(c => c.Value.Score)
+                    .Take(limit)
+                    .Select(c => new IdentityConfidences
+                    {
+                        identity = new Identity { ExternalId = c.Key, GroupIds = c.Value.GroupIds },
+                        matchResult = 1,
+                        confidence = request.returnConfidence ? c.Value.Score : null
+                    })
+                    .ToList();
+
+                response.SearchedIdentities = new List<LookupIdentities>
+                {
+                    new LookupIdentities { identityConfidences = identityConfidences }
+                };
+                return await ReturnResponse(response).ConfigureAwait(true);
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "{Operation} received invalid base64 data", nameof(Search));
+                response.ErrorCode = BiometricResponseCode.BadRequest;
+                response.Message = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64;
+                return await ReturnResponse(response).ConfigureAwait(true);
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogError(ex, "{Operation} received an unrecognized or malformed image", nameof(Search));
+                response.ErrorCode = BiometricResponseCode.BadRequest;
+                response.Message = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage;
+                return await ReturnResponse(response).ConfigureAwait(true);
             }
             catch (Exception ex)
             {
-                throw;
+                _logger.LogError(ex, "{Operation} failed unexpectedly", nameof(Search));
+                await _emailService.ExceptionMailSend(nameof(Search), ex).ConfigureAwait(true);
+                response.ErrorCode = BiometricResponseCode.ServiceUnavailable;
+                response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.GeneralErrorMessage;
+                return await ReturnResponse(response).ConfigureAwait(true);
             }
-            return StatusCode(501);
         }
         #endregion
 

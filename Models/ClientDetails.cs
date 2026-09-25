@@ -4,5 +4,6 @@ namespace MxfaceWebAPI.Models
     {
         public long ClientId { get; set; }
         public string? ClientCode { get; set; }
+        public long UserId { get; set; }
     }
 }

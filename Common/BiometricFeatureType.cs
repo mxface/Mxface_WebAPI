@@ -21,6 +21,8 @@ namespace MxfaceWebAPI.Common
         public const int FaceAnalytics = 14;
         public const int FaceEmotion = 15;
         public const int FaceDetect = 16;
+        public const int FaceVerify = 17;
         public const int FaceLandmark = 18;
+        public const int FaceSearch = 19;
     }
 }

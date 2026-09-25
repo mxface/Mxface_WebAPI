@@ -95,8 +95,8 @@ namespace MxfaceWebAPI.Controllers
 
             try
             {
-                var (width1, height1) = global::MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(request.Iris1);
-                var (width2, height2) = global::MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(request.Iris2);
+                var (format1,width1, height1) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.Iris1);
+                var (format2,width2, height2) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.Iris2);
                 var masterPayload = new IrisVerifyMasterPayload
                 {
                     Probe = new IrisProbeGalleryPayload
@@ -105,7 +105,7 @@ namespace MxfaceWebAPI.Controllers
                         {
                             BioData = new List<BioData>
                             {
-                                new BioData { Format = "BMP", Version = BmpBioDataVersion, Wd = width1, Ht = height1, Data = request.Iris1 }
+                                new BioData { Format = format1, Version = BmpBioDataVersion, Wd = width1, Ht = height1, Data = request.Iris1 }
                             }
                         }
                     },
@@ -115,7 +115,7 @@ namespace MxfaceWebAPI.Controllers
                         {
                             BioData = new List<BioData>
                             {
-                                new BioData { Format = "BMP", Version = BmpBioDataVersion, Wd = width2, Ht = height2, Data = request.Iris2 }
+                                new BioData { Format = format2, Version = BmpBioDataVersion, Wd = width2, Ht = height2, Data = request.Iris2 }
                             }
                         }
                     }
@@ -187,7 +187,7 @@ namespace MxfaceWebAPI.Controllers
                 // The master's real Enroll schema has no identity field of its own — it echoes
                 // back request.ExternalId (sent as demographics.referenceId) inside the response's
                 // "data.referenceId", which BiometricEnrollResponse.IdentityId maps to.
-                var (width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(request.Iris);
+                var (format,width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.Iris);
                 var masterPayload = new IrisEnrollMasterPayload
                 {
                     GroupName = request.Group,
@@ -196,7 +196,7 @@ namespace MxfaceWebAPI.Controllers
                     {
                         BioData = new List<BioData>
                         {
-                            new BioData { Format = "BMP", Version = BmpBioDataVersion, Wd = width, Ht = height, Data = request.Iris }
+                            new BioData { Format = format, Version = BmpBioDataVersion, Wd = width, Ht = height, Data = request.Iris }
                         }
                     }
                 };
@@ -269,7 +269,7 @@ namespace MxfaceWebAPI.Controllers
 
             try
             {
-                var (width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.GetBmpDimensions(request.Iris);
+                var (format,width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(request.Iris);
                 var masterPayload = new IrisSearchMasterPayload
                 {
                     GroupName = request.Group,
@@ -277,7 +277,7 @@ namespace MxfaceWebAPI.Controllers
                     {
                         BioData = new List<BioData>
                         {
-                            new BioData { Format = "BMP", Version = BmpBioDataVersion, Wd = width, Ht = height, Data = request.Iris }
+                            new BioData { Format = format, Version = BmpBioDataVersion, Wd = width, Ht = height, Data = request.Iris }
                         }
                     }
                 };

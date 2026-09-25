@@ -30,7 +30,7 @@ namespace MxfaceWebAPI.Services
             }
 
             const string sql = """
-                select c.id as clientid, c.clientcode
+                select c.id as clientid, c.clientcode,u.id   as userid
                 from faceclient_db.user_api_keys k
                 join faceclient_db.client_users u on u.id = k.userid
                 join faceclient_db.clients c on c.id = u.clientid

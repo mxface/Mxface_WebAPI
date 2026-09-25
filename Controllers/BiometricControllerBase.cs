@@ -6,6 +6,7 @@ using MxfaceWebAPI.Data;
 using MxfaceWebAPI.Grpc;
 using MxfaceWebAPI.Grpc.AbisClient;
 using MxfaceWebAPI.Models;
+using MxfaceWebAPI.Models.Response;
 
 namespace MxfaceWebAPI.Controllers
 {
@@ -21,6 +22,9 @@ namespace MxfaceWebAPI.Controllers
         // unconfirmed value as Mode/Version elsewhere in this project.
         private const int DefaultQuotaCount = 1;
 
+        // Server-side only, per product decision — not client-configurable. 0.01% FAR -> threshold
+        // 48 per the ABIS doc's FAR/threshold table, a reasonable default balance of FAR/FRR.
+        private const double DefaultFarPercent = 0.01;
         // faceclient_db.transactions column limits (character_maximum_length), verified live —
         // error/errorpoint are varchar(10), meant for short codes, not full exception messages.
         // The full detail is never lost: it's already captured by the _logger.LogError calls above.
@@ -98,6 +102,8 @@ namespace MxfaceWebAPI.Controllers
             var requestTimestamp = DateTime.UtcNow;
             var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
             var clientId = ResolvedClientId ?? 0;
+            var matchingThreshold = global::MxfaceWebAPI.CommonHelper.CommonHelper.MatchingThresholdFromFar(
+                _configuration.GetValue("Biometric:MatchingFAR", DefaultFarPercent));
 
             try
             {
@@ -257,7 +263,7 @@ namespace MxfaceWebAPI.Controllers
                         confidence = parsedConfidence;
                     }
 
-                    verifyResponse.Matched = confidence > 0 ? 1 : 0;
+                    verifyResponse.Matched = confidence >= matchingThreshold ? 1 : 0;
                     verifyResponse.MatchingScore = null;
                     verifyResponse.Code = null;
                     verifyResponse.Message = null;
@@ -281,10 +287,42 @@ namespace MxfaceWebAPI.Controllers
                         irisConfidence = irisParsedConfidence;
                     }
 
-                    irisVerifyResponse.Matched = irisConfidence > 0 ? 1 : 0;
+                    irisVerifyResponse.Matched = irisConfidence >= matchingThreshold ? 1 : 0;
                     irisVerifyResponse.MatchingScore = null;
                     irisVerifyResponse.Code = null;
                     irisVerifyResponse.Message = null;
+                }
+
+                // Face Verify's response, unlike FingerPrint/Iris, exposes the raw confidence score
+                // alongside matchResult (0|1) — per explicit product decision for this endpoint's
+                // response contract. image1_face/image2_face are filled in separately by the
+                // caller (FaceController.Verify), since that needs a per-image BioAnalyze call
+                // this generic path has no access to.
+                if (response is MatchedFaceResponse faceVerifyResponse)
+                {
+                    double faceConfidence = 0;
+                    if (dataElement.HasValue
+                        && dataElement.Value.TryGetProperty("candidates", out var faceCandidatesEl)
+                        && faceCandidatesEl.ValueKind == JsonValueKind.Array
+                        && faceCandidatesEl.GetArrayLength() > 0
+                        && faceCandidatesEl[0].TryGetProperty("analytics", out var faceAnalyticsEl)
+                        && faceAnalyticsEl.TryGetProperty("confidence", out var faceConfidenceEl)
+                        && faceConfidenceEl.ValueKind == JsonValueKind.String
+                        && double.TryParse(faceConfidenceEl.GetString(), out var faceParsedConfidence))
+                    {
+                        faceConfidence = faceParsedConfidence;
+                    }
+
+                    faceVerifyResponse.MatchedFaces = new List<CompareFace>
+                    {
+                        new CompareFace
+                        {
+                            matchResult = (short)(faceConfidence >= matchingThreshold ? 1 : 0),
+                            confidence = (float)faceConfidence
+                        }
+                    };
+                    faceVerifyResponse.Code = null;
+                    faceVerifyResponse.Message = null;
                 }
 
                 // Search/Identify's real result is a candidate LIST (1:N), unlike Verify's

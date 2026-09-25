@@ -1,6 +1,6 @@
 ﻿namespace MxfaceWebAPI.Models.Request.FaceIdentity
 {
-    public class CreateFaceIdentityRequest :BiomatricBaseResponse
+    public class CreateFaceIdentityRequest
     {
         public List<int> GroupIds { get; set; }
         public string Encoded_Image { get; set; }

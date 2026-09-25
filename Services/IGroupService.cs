@@ -12,7 +12,7 @@ namespace MxfaceWebAPI.Services
         Task<List<GroupResponse>> ListGroupsAsync(long clientId);
         Task<GroupResponse?> GetGroupAsync(long clientId, int groupId);
         Task<GroupResponse?> GetGroupByNameAsync(long clientId, string groupName);
-        Task<GroupOperationResult> CreateGroupAsync(long clientId, CreateGroupRequest request,string clientCode);
+        Task<GroupOperationResult> CreateGroupAsync(long clientId, CreateGroupRequest request,string clientCode,long userId);
         Task<GroupOperationResult> UpdateGroupAsync(long clientId, int groupId, CreateGroupRequest request, string clientCode);
         Task<GroupOperationResult> DeleteGroupAsync(long clientId, int groupId, string clientCode);
     }
