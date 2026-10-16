@@ -2,6 +2,7 @@ using Google.Protobuf;
 using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Formatters;
 using MxfaceWebAPI.Common;
 using MxfaceWebAPI.Data;
 using MxfaceWebAPI.Filters;
@@ -444,7 +445,7 @@ namespace MxfaceWebAPI.Controllers
                         {
                             Modality = IrisModality,
                             Images = { analyzeImage },
-                            Features = new FeatureFlags { Liveness = true, Quality = true }
+                            Features = new FeatureFlags { Liveness = request.DetectLiveness, Quality = true }
                         }
                     }
                 };
@@ -458,6 +459,7 @@ namespace MxfaceWebAPI.Controllers
                     _logger.LogError("BioAnalyze (Liveness) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
                     response.Code = BiometricResponseCode.ServiceUnavailable;
                     response.ErrorMessage = grpcResponse.Em;
+                    Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
                     await LogLivenessTransactionAsync(responseJson, grpcResponse.Ec.ToString(), "MASTER");
                     return response;
                 }
@@ -468,29 +470,40 @@ namespace MxfaceWebAPI.Controllers
                     _logger.LogError("BioAnalyze (Liveness) returned no usable iris result (modality ec={Ec})", modalityResult?.Ec);
                     response.Code = BiometricResponseCode.ServiceUnavailable;
                     response.ErrorMessage = "Iris liveness could not be determined.";
+                    Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
                     await LogLivenessTransactionAsync(responseJson, modalityResult?.Ec.ToString() ?? "MODALITY", "MASTER");
                     return response;
                 }
 
                 var irisResult = modalityResult.Irises[0];
-                if (irisResult.Liveness == null)
-                {
-                    _logger.LogError("BioAnalyze (Liveness) returned an iris with no Liveness result populated");
-                    response.Code = BiometricResponseCode.ServiceUnavailable;
-                    response.ErrorMessage = "Iris liveness could not be determined.";
-                    await LogLivenessTransactionAsync(responseJson, "NO_LIVENESS", "MASTER");
-                    return response;
-                }
-
-                // TODO: ALiveness.Score (extract.proto) is an unscaled int32 — same 0-100 vs 0-1
-                // assumption flagged on Face/FingerPrint Liveness, pending ABIS/master confirmation.
-                response.IsLive = irisResult.Liveness.Live;
-                response.LivenessScore = irisResult.Liveness.Score / 100f;
                 response.ExtractedQuality = irisResult.Quality;
-                response.BiometricStatus = irisResult.Ec != 0
-                    ? $"Error({irisResult.Ec})"
-                    : (irisResult.Liveness.Live ? "Live" : "NotLive");
-                response.Message = grpcResponse.Em;
+
+                if (!request.DetectLiveness)
+                {
+                    // Liveness wasn't requested at all (FeatureFlags.Liveness = request.DetectLiveness
+                    // above), so irisResult.Liveness being unset here is expected, not an error.
+                    response.BiometricStatus = irisResult.Ec != 0 ? $"Error({irisResult.Ec})" : "Ok";
+                    response.Message = "Liveness score not available.";
+                }
+                else
+                {
+                    if (irisResult.Liveness == null)
+                    {
+                        _logger.LogError("BioAnalyze (Liveness) returned an iris with no Liveness result populated");
+                        response.Code = BiometricResponseCode.ServiceUnavailable;
+                        response.ErrorMessage = "Iris liveness could not be determined.";
+                        Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
+                        await LogLivenessTransactionAsync(responseJson, "NO_LIVENESS", "MASTER");
+                        return response;
+                    }
+                    // TODO: ALiveness.Score (extract.proto) is an unscaled int32 — same 0-100 vs 0-1
+                    // assumption flagged on FaceController.Liveness, pending ABIS/master confirmation.
+                    response.IsLive = irisResult.Liveness.Live;
+                    response.LivenessScore = irisResult.Liveness.Score;
+                    response.ExtractedQuality = irisResult.Quality;
+                    response.BiometricStatus = irisResult.Ec != 0 ? $"Error({irisResult.Ec})" : "Ok";
+                    response.Message = irisResult.Ec != 0 ? "Live iris" : "Not live iris";
+                }
                 response.Code = BiometricResponseCode.Success;
                 await LogLivenessTransactionAsync(responseJson, string.Empty, string.Empty);
             }
@@ -499,6 +512,7 @@ namespace MxfaceWebAPI.Controllers
                 _logger.LogError(ex, "gRPC BioAnalyze (Liveness) call failed");
                 response.Code = BiometricResponseCode.ServiceUnavailable;
                 response.ErrorMessage = "Iris liveness service is unavailable.";
+                Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
                 await LogLivenessTransactionAsync("{}", ex.StatusCode.ToString(), "GRPC");
             }
             catch (FormatException ex)
@@ -506,12 +520,14 @@ namespace MxfaceWebAPI.Controllers
                 _logger.LogError(ex, "Liveness received invalid base64 data");
                 response.Code = BiometricResponseCode.BadRequest;
                 response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64;
+                Response.StatusCode = BiometricResponseCode.BadRequest;
             }
             catch (InvalidDataException ex)
             {
                 _logger.LogError(ex, "Liveness received an unrecognized or malformed image");
                 response.Code = BiometricResponseCode.BadRequest;
                 response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage;
+                Response.StatusCode = BiometricResponseCode.BadRequest;
             }
             catch (Exception ex)
             {
@@ -519,6 +535,7 @@ namespace MxfaceWebAPI.Controllers
                 await _emailService.ExceptionMailSend(nameof(Liveness), ex).ConfigureAwait(true);
                 response.Code = BiometricResponseCode.ServiceUnavailable;
                 response.ErrorMessage = "Something went wrong, please try again later";
+                Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
                 await LogLivenessTransactionAsync("{}", ex.GetType().Name, "UNEXPECTED");
             }
             return response;

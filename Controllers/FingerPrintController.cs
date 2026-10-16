@@ -432,7 +432,7 @@ namespace MxfaceWebAPI.Controllers
                         {
                             Modality = FinagerModality,
                             Images = { analyzeImage },
-                            Features = new FeatureFlags { Liveness = true, Quality = true }
+                            Features = new FeatureFlags { Liveness = request.DetectLiveness, Quality = true }
                         }
                     }
                 };
@@ -446,6 +446,7 @@ namespace MxfaceWebAPI.Controllers
                     _logger.LogError("BioAnalyze (Liveness) rejected: ec={Ec} em={Em}", grpcResponse.Ec, grpcResponse.Em);
                     response.Code = BiometricResponseCode.ServiceUnavailable;
                     response.ErrorMessage = grpcResponse.Em;
+                    Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
                     await LogLivenessTransactionAsync(responseJson, grpcResponse.Ec.ToString(), "MASTER");
                     return response;
                 }
@@ -456,30 +457,42 @@ namespace MxfaceWebAPI.Controllers
                     _logger.LogError("BioAnalyze (Liveness) returned no usable fingerprint result (modality ec={Ec})", modalityResult?.Ec);
                     response.Code = BiometricResponseCode.ServiceUnavailable;
                     response.ErrorMessage = "Fingerprint liveness could not be determined.";
+                    Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
                     await LogLivenessTransactionAsync(responseJson, modalityResult?.Ec.ToString() ?? "MODALITY", "MASTER");
                     return response;
                 }
 
                 var fingerResult = modalityResult.Fingers[0];
-                if (fingerResult.Liveness == null)
+                response.ExtractedQuality = fingerResult.Quality;
+
+                if (!request.DetectLiveness)
                 {
-                    _logger.LogError("BioAnalyze (Liveness) returned a fingerprint with no Liveness result populated");
-                    response.Code = BiometricResponseCode.ServiceUnavailable;
-                    response.ErrorMessage = "Fingerprint liveness could not be determined.";
-                    await LogLivenessTransactionAsync(responseJson, "NO_LIVENESS", "MASTER");
-                    return response;
+                    // Liveness wasn't requested at all (FeatureFlags.Liveness = request.DetectLiveness
+                    // above), so fingerResult.Liveness being unset here is expected, not an error.
+                    response.BiometricStatus = fingerResult.Ec != 0 ? $"Error({fingerResult.Ec})" : "Ok";
+                    response.Message = "Liveness score not available.";
+                }
+                else
+                {
+                    if (fingerResult.Liveness == null)
+                    {
+                        _logger.LogError("BioAnalyze (Liveness) returned a fingerprint with no Liveness result populated");
+                        response.Code = BiometricResponseCode.ServiceUnavailable;
+                        response.ErrorMessage = "Fingerprint liveness could not be determined.";
+                        Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
+                        await LogLivenessTransactionAsync(responseJson, "NO_LIVENESS", "MASTER");
+                        return response;
+                    }
+
+                    // TODO: ALiveness.Score (extract.proto) is an unscaled int32 — same 0-100 vs 0-1
+                    // assumption flagged on FaceController.Liveness, pending ABIS/master confirmation.
+                    response.IsLive = fingerResult.Liveness.Live;
+                    response.LivenessScore = fingerResult.Liveness.Score;
+                    response.ExtractedQuality = fingerResult.Quality;
+                    response.BiometricStatus = fingerResult.Ec != 0 ? $"Error({fingerResult.Ec})" : "Ok";
+                    response.Message = fingerResult.Ec != 0 ? "Live finger" : "Not live finger";
                 }
 
-                // TODO: ALiveness.Score (extract.proto) is an unscaled int32 — same 0-100 vs 0-1
-                // assumption flagged on FaceController.Liveness, pending ABIS/master confirmation.
-                response.IsLive = fingerResult.Liveness.Live;
-                response.LivenessScore = fingerResult.Liveness.Score;
-                //response.LivenessScore = fingerResult.Liveness.Score / 100f;
-                response.ExtractedQuality = fingerResult.Quality;
-                response.BiometricStatus = fingerResult.Ec != 0
-                    ? $"Error({fingerResult.Ec})"
-                    : (fingerResult.Liveness.Live ? "Live" : "NotLive");
-                response.Message = grpcResponse.Em;
                 response.Code = BiometricResponseCode.Success;
                 await LogLivenessTransactionAsync(responseJson, string.Empty, string.Empty);
             }
@@ -488,6 +501,7 @@ namespace MxfaceWebAPI.Controllers
                 _logger.LogError(ex, "gRPC BioAnalyze (Liveness) call failed");
                 response.Code = BiometricResponseCode.ServiceUnavailable;
                 response.ErrorMessage = "Fingerprint liveness service is unavailable.";
+                Response.StatusCode = BiometricResponseCode.ServiceUnavailable;
                 await LogLivenessTransactionAsync("{}", ex.StatusCode.ToString(), "GRPC");
             }
             catch (FormatException ex)
@@ -495,12 +509,14 @@ namespace MxfaceWebAPI.Controllers
                 _logger.LogError(ex, "Liveness received invalid base64 data");
                 response.Code = BiometricResponseCode.BadRequest;
                 response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidBase64;
+                Response.StatusCode = BiometricResponseCode.BadRequest;
             }
             catch (InvalidDataException ex)
             {
                 _logger.LogError(ex, "Liveness received an unrecognized or malformed image");
                 response.Code = BiometricResponseCode.BadRequest;
                 response.ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InvalidImage;
+                Response.StatusCode = BiometricResponseCode.BadRequest;
             }
             return response;
         }
