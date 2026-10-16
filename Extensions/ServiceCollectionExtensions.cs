@@ -16,6 +16,7 @@ namespace MxfaceWebAPI.Extensions
             services.AddSingleton<IAbisAdminApiClient, AbisAdminApiClient>();
             services.AddScoped<IGroupDataAccess, GroupDataAccess>();
             services.AddScoped<IGroupService, GroupService>();
+            services.AddScoped<IFaceIdentityMapDataAccess, FaceIdentityMapDataAccess>();
 
             return services;
         }

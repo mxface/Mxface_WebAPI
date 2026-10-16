@@ -95,7 +95,10 @@ namespace MxfaceWebAPI.Controllers
             // call. Both existing params keep their old behavior when these are omitted (null).
             Func<string?, string?, bool>? shouldRetryWithFallback = null,
             Func<ClientApiRequest, CallOptions, Task<ClientApiResponse>>? fallbackGrpcCall = null,
-            int? fallbackMode = null)
+            int? fallbackMode = null,
+            // See MasterErrorMapper.Map — opt-in for RPCs where the master answers bad probe
+            // data (e.g. a fingerprint sent to Iris Search) with a generic -1000.
+            bool internalErrorMeansInvalidBiometric = false)
             where TResponse : BiomatricBaseResponse, new()
         {
             var envelope = _envelopeFactory.Create(mode, requestPayload, ResolvedSubscriptionKey ?? string.Empty);
@@ -129,9 +132,15 @@ namespace MxfaceWebAPI.Controllers
                     {
                         masterErrorMessage = emEl.GetString();
                     }
-                    if (masterResponseDoc.RootElement.TryGetProperty("ec", out var ecEl) && ecEl.ValueKind == JsonValueKind.String)
+                    if (masterResponseDoc.RootElement.TryGetProperty("ec", out var ecEl))
                     {
-                        masterErrorCode = ecEl.GetString();
+                        // Normally a string ("ec":"0"), but some failures come back numeric ("ec":-8015).
+                        masterErrorCode = ecEl.ValueKind switch
+                        {
+                            JsonValueKind.String => ecEl.GetString(),
+                            JsonValueKind.Number => ecEl.GetRawText(),
+                            _ => null
+                        };
                     }
                     if (masterResponseDoc.RootElement.TryGetProperty("data", out var dataEl))
                     {
@@ -162,7 +171,7 @@ namespace MxfaceWebAPI.Controllers
                         CreatedBy = clientId
                     });
 
-                    var mapping = MasterErrorMapper.Map(em);
+                    var mapping = MasterErrorMapper.Map(ec, em, internalErrorMeansInvalidBiometric);
                     Response.StatusCode = mapping.HttpStatus;
                     var errorResponse = new TResponse { Code = mapping.HttpStatus };
                     if (mapping.Field == "message")
@@ -187,7 +196,8 @@ namespace MxfaceWebAPI.Controllers
                             "{Operation}: master reported '{ErrorMessage}' — retrying via Update for an existing identity",
                             operationName, masterErrorMessage);
                         return await CallAsync<TResponse>(
-                            fallbackMode ?? mode, requestPayload, fallbackGrpcCall, operationName + "->Update", featureType);
+                            fallbackMode ?? mode, requestPayload, fallbackGrpcCall, operationName + "->Update", featureType,
+                        internalErrorMeansInvalidBiometric: internalErrorMeansInvalidBiometric);
                     }
 
                     return await BuildMasterErrorResponseAsync(masterErrorCode, masterErrorMessage);

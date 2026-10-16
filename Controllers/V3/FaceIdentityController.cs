@@ -29,6 +29,7 @@ namespace MxfaceWebAPI.Controllers.V3
         // TODO: confirm the real mode value the master uses for Face Enroll/Search.
         private const int EnrollMode = 0;
         private const int SearchMode = 0;
+        private const int DeleteMode = 0;
 
         // Per the official ABIS Client API v2.0 reference doc's Biometric Data Formats table
         // (§21): raster formats (BMP/JPEG/PNG/RAW/WSQ) all pair with version="0" regardless of
@@ -47,6 +48,7 @@ namespace MxfaceWebAPI.Controllers.V3
         private readonly IEmailService _emailService;
         private readonly IConfiguration _config;
         private readonly IGroupService _groupService;
+        private readonly IFaceIdentityMapDataAccess _faceIdentityMapDataAccess;
 
         // Resolved by APIAuthorizationFilterAttribute and stashed in HttpContext.Items — same
         // pattern as BiometricControllerBase.ResolvedClientId, kept local here since this
@@ -59,16 +61,21 @@ namespace MxfaceWebAPI.Controllers.V3
         private string? ResolvedClientCode =>
             HttpContext.Items.TryGetValue("ClientCode", out var value) && value is string clientCode ? clientCode : null;
 
+        // client_users.id of the caller — stored as createdby/updatedby on metadata rows.
+        private long? ResolvedUserId =>
+            HttpContext.Items.TryGetValue("UserId", out var value) && value is long userId ? userId : null;
+
         #region For Refrence Call
         public FaceIdentityController(ClientApiService.ClientApiServiceClient clientApiClient, IClientApiEnvelopeFactory envelopeFactory,
             IConfiguration configuration, IPostgresHelper postgresHelper, ILogger<FaceIdentityController> logger,
-            IEmailService emailService, IGroupService groupService) : base(envelopeFactory, configuration, postgresHelper, logger)
+            IEmailService emailService, IGroupService groupService, IFaceIdentityMapDataAccess faceIdentityMapDataAccess) : base(envelopeFactory, configuration, postgresHelper, logger)
 
         {
             _clientApiClient = clientApiClient;
             _emailService = emailService;
             _config = configuration;
             _groupService = groupService;
+            _faceIdentityMapDataAccess = faceIdentityMapDataAccess;
         }
         #endregion
 
@@ -226,6 +233,13 @@ namespace MxfaceWebAPI.Controllers.V3
                     }
                 }
 
+                // ABIS enrolled every group — only now record the identity locally. face_identity_map
+                // holds one group per identity (unique on clientid+externalid), so the first group is stored.
+                var faceIdentityId = await _faceIdentityMapDataAccess.InsertAsync(
+                    clientId, model.externalId, groups[0].GroupId, ResolvedUserId);
+
+                enrollResult.FaceIdentityId = (int)faceIdentityId;
+                enrollResult.externalId = model.externalId;
                 return enrollResult;
             }
             catch (FormatException ex)
@@ -444,12 +458,11 @@ namespace MxfaceWebAPI.Controllers.V3
         #endregion
 
 
-        #region
+        #region Get Identity
         /// <summary>
-        /// Get identity by external id — stub. Not yet implemented: the legacy version looked up
-        /// a local DB (_faceIdentityService), which doesn't exist in this gRPC-based project.
-        /// Needs its own design pass (likely the master's Search/Identify by referenceId) before
-        /// being built for real.
+        /// Get identity by external id — read from faceclient_db.face_identity_map only (no ABIS
+        /// call: ABIS has no "get applicant" API). Faces are not returned since face data lives
+        /// in ABIS, not on our side.
         /// </summary>
         /// <param name="externalId"></param>
         /// <returns></returns>
@@ -458,34 +471,135 @@ namespace MxfaceWebAPI.Controllers.V3
         [MapToApiVersion("3.0")]
         [Route("{externalId}/facIdentities", Name = "GetFaceByExternalId")]
         [ApiExplorerSettings(GroupName = "Identity V3")]
-        public Task<IActionResult> Get([FromRoute] string externalId)
+        public async Task<ActionResult<FaceIdentityInfo>> Get([FromRoute] string externalId)
         {
-            return Task.FromResult<IActionResult>(StatusCode(501));
-        }
-        #endregion
+            if (string.IsNullOrWhiteSpace(externalId))
+            {
+                return await ReturnResponse(new FaceIdentityInfo
+                {
+                    ErrorCode = BiometricResponseCode.BadRequest,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest + " External id required"
+                }).ConfigureAwait(true);
+            }
 
+            var identity = await _faceIdentityMapDataAccess.GetByExternalIdAsync(externalId, ResolvedClientId!.Value);
+            return await ReturnResponse(ToFaceIdentityInfoOrNotFound(identity)).ConfigureAwait(true);
+        }
+
+        /// <summary>
+        /// Get identity by face identity id — read from faceclient_db.face_identity_map only
+        /// (no ABIS call). Faces are not returned.
+        /// </summary>
         [HttpGet("{faceIdentityId}", Name = "GetByIdentityId")]
         [APIAuthorizationFilter]
         [MapToApiVersion("3.0")]
         [ApiExplorerSettings(GroupName = "Identity V3")]
         public async Task<ActionResult<FaceIdentityInfo>> Get([FromRoute] int faceIdentityId)
         {
-            Models.Response.FaceIdentity.FaceIdentityInfo response = new Models.Response.FaceIdentity.FaceIdentityInfo();
-            return await ReturnResponse(response).ConfigureAwait(true);
+            if (faceIdentityId <= 0)
+            {
+                return await ReturnResponse(new FaceIdentityInfo
+                {
+                    ErrorCode = BiometricResponseCode.BadRequest,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest
+                }).ConfigureAwait(true);
+            }
+
+            var identity = await _faceIdentityMapDataAccess.GetByFaceIdentityIdAsync(faceIdentityId, ResolvedClientId!.Value);
+            return await ReturnResponse(ToFaceIdentityInfoOrNotFound(identity)).ConfigureAwait(true);
         }
 
+        private static FaceIdentityInfo ToFaceIdentityInfoOrNotFound(FaceIdentityMap? identity) =>
+            identity == null
+                ? new FaceIdentityInfo { ErrorCode = StatusCodes.Status404NotFound, ErrorMessage = "Identity not found." }
+                : ToFaceIdentityInfo(identity);
+
+        // Faces is deliberately left null — the global WhenWritingNull JSON option (Program.cs)
+        // then drops it from the response entirely. Metadata comes from face_identity_metadata
+        // (joined in the same query), {} when the identity has none.
+        private static FaceIdentityInfo ToFaceIdentityInfo(FaceIdentityMap identity)
+        {
+            var groups = new List<Models.Response.Group.GroupResponse>();
+            if (identity.GroupId.HasValue)
+            {
+                var groupCreatedAt = identity.GroupCreatedAt ?? identity.CreatedAt;
+                groups.Add(new Models.Response.Group.GroupResponse
+                {
+                    GroupId = (int)identity.GroupId.Value,
+                    GroupName = identity.GroupName ?? string.Empty,
+                    CreatedDate = groupCreatedAt,
+                    UpdatedDate = identity.GroupModifyAt ?? groupCreatedAt
+                });
+            }
+
+            return new FaceIdentityInfo
+            {
+                FaceIdentityId = (int)identity.FaceIdentityId,
+                Groups = groups,
+                CreatedDate = identity.CreatedAt,
+                externalId = identity.ExternalId,
+                UpdatedDate = identity.ModifyAt ?? identity.CreatedAt,
+                Metadata = ParseMetadata(identity.Metadata)
+            };
+        }
+        #endregion
+
+        /// <summary>
+        /// List identities of the client, optionally filtered by group, paged by offset/limit —
+        /// read from faceclient_db.face_identity_map only (no ABIS call).
+        /// </summary>
         [APIAuthorizationFilter]
         [HttpGet(Name = "GetIdentityByGroup")]
         [MapToApiVersion("3.0")]
         [ApiExplorerSettings(GroupName = "Identity V3")]
         public async Task<ActionResult<Models.Response.FaceIdentity.FaceIdentityResponse>> Get(int? groupId, int offset = 0, int limit = 10)
         {
-            var response = new Models.Response.FaceIdentity.FaceIdentityResponse
+            // Same limit/offset rules and plain-text 400s as the legacy API.
+            if (limit > 100)
             {
-                ErrorCode = BiometricResponseCode.NotImplemented,
-                ErrorMessage = "Listing identities by group is not yet available; the ABIS master gRPC support for it is under development."
-            };
-            return await ReturnResponse(response).ConfigureAwait(true);
+                return BadRequest("Limit cannot be greater than 100");
+            }
+            else if (limit <= 0)
+            {
+                return BadRequest("Limit should be greater than 0");
+            }
+            if (offset < 0)
+            {
+                offset = 0;
+            }
+
+            try
+            {
+                var clientId = ResolvedClientId!.Value;
+                var identities = await _faceIdentityMapDataAccess.GetListAsync(clientId, groupId, offset, limit);
+
+                var response = new Models.Response.FaceIdentity.FaceIdentityResponse
+                {
+                    FaceIdentities = identities.Select(ToFaceIdentityInfo).ToList(),
+                    TotalFaceIdentities = identities.Count > 0
+                        ? await _faceIdentityMapDataAccess.GetCountAsync(clientId, groupId)
+                        : 0
+                };
+                return await ReturnResponse(response).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "{Operation} failed unexpectedly", "GetIdentityByGroup");
+                await _emailService.ExceptionMailSend("Identity_GetByGroupId", ex).ConfigureAwait(true);
+                return await ReturnResponse(new Models.Response.FaceIdentity.FaceIdentityResponse
+                {
+                    ErrorCode = BiometricResponseCode.ServiceUnavailable,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.GeneralErrorMessage
+                }).ConfigureAwait(true);
+            }
+        }
+
+        // Delete responses carry only code/message — Metadata defaults to {} on FaceIdentityInfo,
+        // so it's nulled here and the global WhenWritingNull option drops it from the JSON.
+        private Task<ActionResult<FaceIdentityInfo>> DeleteResponse(FaceIdentityInfo response)
+        {
+            response.Metadata = null!;
+            return ReturnResponse(response);
         }
 
         [HttpDelete("{faceIdentityId}", Name = "DeleteIdentity")]
@@ -494,20 +608,89 @@ namespace MxfaceWebAPI.Controllers.V3
         [ApiExplorerSettings(GroupName = "Identity V3")]
         public async Task<ActionResult<FaceIdentityInfo>> Delete([FromRoute] int faceIdentityId)
         {
-            FaceIdentityInfo response = new FaceIdentityInfo();
+            if (faceIdentityId <= 0)
+            {
+                return await DeleteResponse(new FaceIdentityInfo
+                {
+                    ErrorCode = BiometricResponseCode.BadRequest,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest + "FaceIdentity Id is required"
+                }).ConfigureAwait(true);
+            }
+
             try
             {
+                var clientId = ResolvedClientId!.Value;
 
+                // faceIdentityId -> externalId (= ABIS referenceId) + groupName, both needed by ABIS Delete.
+                var identity = await _faceIdentityMapDataAccess.GetByFaceIdentityIdAsync(faceIdentityId, clientId);
+                if (identity == null)
+                {
+                    return await DeleteResponse(new FaceIdentityInfo
+                    {
+                        ErrorCode = StatusCodes.Status404NotFound,
+                        ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.IdentityNotExists
+                    }).ConfigureAwait(true);
+                }
+
+                // groupid has no foreign key, so the group may be missing or deleted — ABIS can't
+                // delete without a groupName, so keep the row rather than orphan the ABIS record.
+                if (string.IsNullOrWhiteSpace(identity.GroupName))
+                {
+                    return await DeleteResponse(new FaceIdentityInfo
+                    {
+                        ErrorCode = BiometricResponseCode.BadRequest,
+                        ErrorMessage = "Group not found for this identity."
+                    }).ConfigureAwait(true);
+                }
+
+                // Delete from ABIS first: if it fails the local row stays and the client can retry.
+                var abisResult = await CallAsync<BiomatricBaseResponse>(
+                    DeleteMode,
+                    new DeleteMasterPayload
+                    {
+                        GroupName = identity.GroupName,
+                        ReferenceIds = new List<string> { identity.ExternalId }
+                    },
+                    (r, o) => _clientApiClient.DeleteAsync(r, o).ResponseAsync,
+                    nameof(Delete),
+                    BiometricFeatureType.FaceDelete);
+
+                // "Citizen not found" means ABIS no longer has this person, so the local row is
+                // stale — remove it too instead of leaving an identity that can never be deleted.
+                var abisNotFound = abisResult.Message == MasterErrorMapper.ExternalIdNotFoundMessage;
+                if (abisResult.Code != BiometricResponseCode.Success && !abisNotFound)
+                {
+                    return await DeleteResponse(new FaceIdentityInfo
+                    {
+                        ErrorCode = abisResult.Code ?? BiometricResponseCode.ServiceUnavailable,
+                        ErrorMessage = abisResult.ErrorMessage ?? abisResult.Message
+                    }).ConfigureAwait(true);
+                }
+
+                if (abisNotFound)
+                {
+                    _logger.LogWarning("{Operation}: ABIS had no record for faceIdentityId {FaceIdentityId}; removing the local row only",
+                        nameof(Delete), faceIdentityId);
+                }
+
+                await _faceIdentityMapDataAccess.DeleteAsync(faceIdentityId, clientId, ResolvedUserId);
+
+                return await DeleteResponse(new FaceIdentityInfo
+                {
+                    Code = BiometricResponseCode.Success,
+                    Message = "Identity deleted successfully."
+                }).ConfigureAwait(true);
             }
             catch (Exception ex)
             {
-
-                throw;
+                _logger.LogError(ex, "{Operation} failed unexpectedly", nameof(Delete));
+                await _emailService.ExceptionMailSend("Identity_DeleteIdentity", ex).ConfigureAwait(true);
+                return await DeleteResponse(new FaceIdentityInfo
+                {
+                    ErrorCode = BiometricResponseCode.ServiceUnavailable,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.GeneralErrorMessage
+                }).ConfigureAwait(true);
             }
-
-            response.ErrorCode = BiometricResponseCode.NotImplemented;
-            response.ErrorMessage = "Deleting an identity by internal id is not yet available; the ABIS master gRPC support for it is under development.";
-            return await ReturnResponse(response).ConfigureAwait(true);
         }
 
 
@@ -518,7 +701,7 @@ namespace MxfaceWebAPI.Controllers.V3
         [ApiExplorerSettings(GroupName = "Identity V3")]
         public async Task<ActionResult<MetadataInfo>> Post([FromRoute] int faceIdentityId, [FromBody] MetadataRequest request)
         {
-            if (request == null || !request.Metadata.Any())
+            if (request?.Metadata == null || !request.Metadata.Any())
             {
                 return await ReturnResponse(new MetadataInfo { ErrorCode = StatusCodes.Status400BadRequest, ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest }).ConfigureAwait(true);
             }
@@ -527,11 +710,55 @@ namespace MxfaceWebAPI.Controllers.V3
                 return await ReturnResponse(new MetadataInfo { ErrorCode = StatusCodes.Status400BadRequest, ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest }).ConfigureAwait(true);
             }
 
-            return await ReturnResponse(new MetadataInfo
+            try
             {
-                ErrorCode = BiometricResponseCode.NotImplemented,
-                ErrorMessage = "Adding identity metadata is not yet available; the ABIS master gRPC support for it is under development."
-            }).ConfigureAwait(true);
+                var clientId = ResolvedClientId!.Value;
+
+                // Metadata may only be added for an identity that exists for this client.
+                var identity = await _faceIdentityMapDataAccess.GetByFaceIdentityIdAsync(faceIdentityId, clientId);
+                if (identity == null)
+                {
+                    return await ReturnResponse(new MetadataInfo
+                    {
+                        ErrorCode = StatusCodes.Status404NotFound,
+                        ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.IdentityNotExists
+                    }).ConfigureAwait(true);
+                }
+
+                var added = await _faceIdentityMapDataAccess.AddMetadataAsync(
+                    faceIdentityId, clientId, System.Text.Json.JsonSerializer.Serialize(request.Metadata), ResolvedUserId);
+
+                if (added == null)
+                {
+                    // Same contract as legacy: already-present metadata is a 400 that echoes it back.
+                    var existing = await _faceIdentityMapDataAccess.GetMetadataAsync(faceIdentityId, clientId);
+                    return await ReturnResponse(new MetadataInfo
+                    {
+                        Metadata = ParseMetadata(existing),
+                        FaceIdentityId = faceIdentityId,
+                        Code = StatusCodes.Status400BadRequest,
+                        ErrorCode = StatusCodes.Status400BadRequest,
+                        ErrorMessage = "Metadata already exists for this identity."
+                    }).ConfigureAwait(true);
+                }
+
+                return await ReturnResponse(new MetadataInfo
+                {
+                    Metadata = ParseMetadata(added),
+                    FaceIdentityId = faceIdentityId,
+                    Code = StatusCodes.Status200OK
+                }).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "{Operation} failed unexpectedly", "AddMetadata");
+                await _emailService.ExceptionMailSend("Identity_AddMetadata", ex).ConfigureAwait(true);
+                return await ReturnResponse(new MetadataInfo
+                {
+                    ErrorCode = BiometricResponseCode.ServiceUnavailable,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.GeneralErrorMessage
+                }).ConfigureAwait(true);
+            }
         }
 
 
@@ -548,17 +775,63 @@ namespace MxfaceWebAPI.Controllers.V3
                 return await ReturnResponse(new MetadataInfo { ErrorCode = StatusCodes.Status400BadRequest, ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest }).ConfigureAwait(true);
             }
 
-            if (request == null || !request.Metadata.Any())
+            if (request?.Metadata == null || !request.Metadata.Any())
             {
                 return await ReturnResponse(new MetadataInfo { ErrorCode = StatusCodes.Status400BadRequest, ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.InValidRequest }).ConfigureAwait(true);
             }
 
-            return await ReturnResponse(new MetadataInfo
+            try
             {
-                ErrorCode = BiometricResponseCode.NotImplemented,
-                ErrorMessage = "Updating identity metadata is not yet available; the ABIS master gRPC support for it is under development."
-            }).ConfigureAwait(true);
+                var clientId = ResolvedClientId!.Value;
+
+                var identity = await _faceIdentityMapDataAccess.GetByFaceIdentityIdAsync(faceIdentityId, clientId);
+                if (identity == null)
+                {
+                    return await ReturnResponse(new MetadataInfo
+                    {
+                        ErrorCode = StatusCodes.Status404NotFound,
+                        ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.IdentityNotExists
+                    }).ConfigureAwait(true);
+                }
+
+                var updated = await _faceIdentityMapDataAccess.UpdateMetadataAsync(
+                    faceIdentityId, clientId, System.Text.Json.JsonSerializer.Serialize(request.Metadata), ResolvedUserId);
+
+                if (updated == null)
+                {
+                    return await ReturnResponse(new MetadataInfo
+                    {
+                        Code = StatusCodes.Status400BadRequest,
+                        ErrorCode = StatusCodes.Status400BadRequest,
+                        ErrorMessage = "Not metadata found to update."
+                    }).ConfigureAwait(true);
+                }
+
+                return await ReturnResponse(new MetadataInfo
+                {
+                    Metadata = ParseMetadata(updated),
+                    FaceIdentityId = faceIdentityId,
+                    Code = StatusCodes.Status200OK
+                }).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "{Operation} failed unexpectedly", "UpdateMetadata");
+                await _emailService.ExceptionMailSend("Identity_UpdateMetadata", ex).ConfigureAwait(true);
+                return await ReturnResponse(new MetadataInfo
+                {
+                    ErrorCode = BiometricResponseCode.ServiceUnavailable,
+                    ErrorMessage = global::MxfaceWebAPI.CommonHelper.CommonHelper.GeneralErrorMessage
+                }).ConfigureAwait(true);
+            }
         }
+
+        // Metadata is stored as a JSON object of string values (it's written from
+        // Dictionary<string, string>), so it reads back into the same shape.
+        private static Dictionary<string, string> ParseMetadata(string? metadataJson) =>
+            string.IsNullOrWhiteSpace(metadataJson)
+                ? []
+                : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(metadataJson) ?? [];
 
 
         [HttpPut]

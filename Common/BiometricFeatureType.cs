@@ -24,5 +24,6 @@ namespace MxfaceWebAPI.Common
         public const int FaceVerify = 17;
         public const int FaceLandmark = 18;
         public const int FaceSearch = 19;
+        public const int FaceDelete = 20;
     }
 }

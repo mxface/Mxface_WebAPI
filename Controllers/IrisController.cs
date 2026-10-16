@@ -284,7 +284,9 @@ namespace MxfaceWebAPI.Controllers
 
                 return await CallAsync<BiometricSearchResponse>(
                     SearchMode, masterPayload, (r, o) => _clientApiClient.IdentifyAsync(r, o).ResponseAsync, nameof(Search),
-                    BiometricFeatureType.IrisSearch);
+                    BiometricFeatureType.IrisSearch,
+                    // Master returns -1000 "Internal Server Error" for a non-iris probe (e.g. a fingerprint image).
+                    internalErrorMeansInvalidBiometric: true);
             }
             catch (FormatException ex)
             {

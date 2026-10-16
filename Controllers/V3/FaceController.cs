@@ -349,8 +349,9 @@ namespace MxfaceWebAPI.Controllers.V3
 
             try
             {
-                // Same BioAnalyze RPC as Quality/Liveness/Analytics, requesting only Detect (to
-                // localize the face) + Emotion.
+                // Same BioAnalyze RPC as Quality/Liveness/Analytics. The old API's Emotion response
+                // also carried age/gender/confidence/quality, so those are requested alongside
+                // Detect (to localize the face) + Emotion.
                 var (format, width, height) = global::MxfaceWebAPI.CommonHelper.CommonHelper.DetectImageFormat(model.encoded_image);
                 var imageBytes = Convert.FromBase64String(model.encoded_image);
 
@@ -373,7 +374,7 @@ namespace MxfaceWebAPI.Controllers.V3
                         {
                             Modality = FaceModality,
                             Images = { analyzeImage },
-                            Features = new FeatureFlags { Detect = true, Emotion = true }
+                            Features = new FeatureFlags { Detect = true, Quality = true, Gender = true, Age = true, Emotion = true }
                         }
                     }
                 };
@@ -406,13 +407,19 @@ namespace MxfaceWebAPI.Controllers.V3
                 // it (e.g. a degenerate/non-real-face image), not just a default struct.
                 faceAnalyticsResponse.Faces = modalityResult.Faces.Select(f => new Analytics
                 {
+                    // -1 = not computed by the master.
+                    Quality = f.Quality >= 0 ? f.Quality : 0,
                     FaceRectangle = f.Rect == null ? null : new FaceRectangle { x = f.Rect.X, y = f.Rect.Y, width = f.Rect.W, height = f.Rect.H },
                     FaceAnalytics = new FaceAnalytics
                     {
-                        Emotion = string.IsNullOrEmpty(f.Emotion) ? null : f.Emotion
+                        EstimatedAge = f.Age >= 0 ? f.Age.ToString() : null,
+                        Gender = string.IsNullOrEmpty(f.Gender) ? null : f.Gender,
+                        Emotion = string.IsNullOrEmpty(f.Emotion) ? null : f.Emotion,
+                        Confidence = f.GenderConfidence
                     }
                 }).ToList();
-                faceAnalyticsResponse.Code = 200;
+                // Old API's Emotion success body was just {"faces":[...]} — no "code" field.
+                faceAnalyticsResponse.Code = null;
                 await LogFaceTransactionAsync(BiometricFeatureType.FaceEmotion, reqId, requestTimestamp, requestPayloadJson, responseJson, string.Empty, string.Empty);
             }
             catch (RpcException ex)
